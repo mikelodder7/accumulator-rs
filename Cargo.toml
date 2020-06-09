@@ -1,7 +1,0 @@
-[package]
-name = "accumulator-rs"
-version = "0.1.0"
-authors = ["Michael Lodder <redmike7@gmail.com>"]
-edition = "2018"
-
-[dependencies]
