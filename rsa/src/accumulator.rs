@@ -1,7 +1,5 @@
-use crate::hash::hash_to_prime;
-#[cfg(not(test))]
-use glass_pumpkin::safe_prime::new as gen_safe_prime;
-use num_bigint::BigUint;
+use crate::{key::AccumulatorSecretKey, hash::hash_to_prime, FACTOR_SIZE, MIN_BYTES, MEMBER_SIZE, b2fa, clone_bignum};
+use openssl::bn::*;
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize, Serializer, Deserializer, de::{Error as DError, Visitor}};
 use std::{
@@ -11,59 +9,61 @@ use std::{
     collections::BTreeSet,
 };
 
-const MIN_SIZE_PRIME: usize = 1024;
-const FACTOR_SIZE: usize = MIN_SIZE_PRIME / 8;
-const MIN_BYTES: usize = FACTOR_SIZE * 5 + 4;
-const MEMBER_SIZE: usize = 32;
-
-/// Represents the safe primes used in the modulus for the accumulator
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AccumulatorSecretKey {
-    /// Must be a safe prime with MIN_SIZE_PRIME bits
-    p: BigUint,
-    /// Must be a safe prime with MIN_SIZE_PRIME bits
-    q: BigUint,
-}
-
-/// A universal RSA accumulator
-#[derive(Debug, Clone, Eq, PartialEq)]
+/// Represents a Universal RSA Accumulator
+#[derive(Debug, Eq, PartialEq)]
 pub struct Accumulator {
     /// The initial value of the accumulator and the generator
     /// to be used for generating proofs
-    generator: BigUint,
+    pub generator: BigNum,
     /// The current set of members in the accumulator
-    members: BTreeSet<BigUint>,
+    pub members: BTreeSet<BigNum>,
     /// The RSA modulus
-    modulus: BigUint,
+    pub modulus: BigNum,
     /// The current accumulator value with all `members`
-    value: BigUint,
+    pub value: BigNum,
 }
 
 impl Accumulator {
     /// Create a new accumulator
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(key: &AccumulatorSecretKey) -> Self {
+        let modulus = key.modulus();
+        let generator = random_qr(&modulus);
+        let value = clone_bignum(&generator);
+        Self {
+            generator,
+            members: BTreeSet::new(),
+            modulus,
+            value
+        }
     }
 
     /// Initialize a new accumulator prefilled with entries
-    pub fn with_members<M: AsRef<[B]>, B: AsRef<[u8]>>(m: M) -> Self {
+    pub fn with_members<M: AsRef<[B]>, B: AsRef<[u8]>>(key: &AccumulatorSecretKey, m: M) -> Self {
+        let modulus = key.modulus();
         let m: Vec<&[u8]> = m.as_ref().iter().map(|b| b.as_ref()).collect();
-        let members: BTreeSet<BigUint> = m.par_iter().map(|b| hash_to_prime(b)).collect();
-        let primes = gen_primes();
-        let totient = (&primes[1] - 1u64) * (&primes[2] - 1u64);
+        let members: BTreeSet<BigNum> = m.par_iter().map(|b| hash_to_prime(b)).collect();
+        let totient = key.totient();
 
         // From section 3.2 in https://cs.brown.edu/people/alysyans/papers/camlys02.pdf
         // For Update of the accumulator value:
-        // n = p * q
+        // N = p * q
         // \varphi = (p - 1)(q -1)
         // To batch add values to the exponent, compute
         // \pi_add = (x_1 * ... * x_n) \mod (\varphi)
-        // v ^ {\pi_add} mod n
-        let modulus = &primes[1] * &primes[2];
-        let exp = members.clone().into_par_iter().reduce(|| BigUint::from(1u64), |v, m| (v * m) % &totient);
-        let value = primes[0].modpow(&exp, &modulus);
+        // v ^ {\pi_add} mod N
+        let exp = members.par_iter().map(clone_bignum).reduce(|| BigNum::from_u32(1u32).unwrap(), |v, m| {
+            let mut ctx = BigNumContext::new().unwrap();
+            let mut t = BigNum::new().unwrap();
+            BigNumRef::mod_mul(&mut t, &v, &m, &totient, &mut ctx).unwrap();
+            t
+        });
+        let generator = random_qr(&modulus);
+        println!("generator = {:?}", generator);
+        let mut value = BigNum::new().unwrap();
+        let mut ctx = BigNumContext::new().unwrap();
+        BigNumRef::mod_exp(&mut value, &generator, &exp, &modulus, &mut ctx).unwrap();
         Self {
-            generator: primes[0].clone(),
+            generator,
             members,
             modulus,
             value
@@ -72,37 +72,53 @@ impl Accumulator {
 
     /// Add a value to the accumulator, the value will be hashed to a prime number first
     pub fn insert<B: AsRef<[u8]>>(&self, value: B) -> Self {
-
-        let p = hash_to_prime(value.as_ref());
-        if self.members.contains(&p) {
-            return self.clone();
-        }
-        let mut members = self.members.clone();
-        members.insert(p.clone());
-        let value = self.value.modpow(&p, &self.modulus);
-        Self {
-            generator: self.generator.clone(),
-            members,
-            modulus: self.modulus.clone(),
-            value,
-        }
+        let mut a = self.clone();
+        a.insert_mut(value);
+        a
     }
 
     /// Add a value an update this accumulator
     pub fn insert_mut<B: AsRef<[u8]>>(&mut self, value: B) {
-        let p = hash_to_prime(value.as_ref());
+        let p = hash_to_prime(value);
         if self.members.contains(&p) {
             return;
         }
-        self.members.insert(p.clone());
-        self.value = self.value.modpow(&p, &self.modulus);
+        self.members.insert(clone_bignum(&p));
+        let mut ctx = BigNumContext::new().unwrap();
+        let mut v = BigNum::new().unwrap();
+        BigNumRef::mod_exp(&mut v, &self.value, &p, &self.modulus, &mut ctx).unwrap();
+        self.value = v;
+    }
+
+    /// Remove a value from the accumulator and return
+    /// a new accumulator without `value`
+    pub fn delete<B: AsRef<[u8]>>(&self, key: &AccumulatorSecretKey, value: B) -> Self {
+        let mut a = self.clone();
+        a.delete_mut(&key, value);
+        a
+    }
+
+    /// Remove a value from this accumulator
+    pub fn delete_mut<B: AsRef<[u8]>>(&mut self, key: &AccumulatorSecretKey, value: B) {
+        let v = hash_to_prime(value);
+        if !self.members.contains(&v) {
+            return;
+        }
+        let t = key.totient();
+        let mut ctx = BigNumContext::new().unwrap();
+        let mut v_1 = BigNum::new().unwrap();
+        BigNumRef::mod_inverse(&mut v_1, &v, &t, &mut ctx).unwrap();
+        self.members.remove(&v);
+        let mut value = BigNum::new().unwrap();
+        BigNumRef::mod_exp(&mut value, &self.value, &v_1, &self.modulus, &mut ctx).unwrap();
+        self.value = value;
     }
 
     /// Convert accumulator to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(FACTOR_SIZE * 5 + 4 + MEMBER_SIZE * self.members.len());
+        let mut out = Vec::with_capacity(MIN_BYTES + MEMBER_SIZE * self.members.len());
 
-        out.append(b2fa(&self.generator, FACTOR_SIZE).as_mut());
+        out.append(b2fa(&self.generator, FACTOR_SIZE * 2).as_mut());
         out.append(b2fa(&self.value, FACTOR_SIZE * 2).as_mut());
         out.append(b2fa(&self.modulus, FACTOR_SIZE * 2).as_mut());
 
@@ -117,14 +133,21 @@ impl Accumulator {
     }
 }
 
-impl Default for Accumulator {
-    fn default() -> Self {
-        let primes = gen_primes();
+impl Clone for Accumulator {
+    fn clone(&self) -> Self {
+        let generator = BigNum::from_slice(self.generator.to_vec().as_slice()).unwrap();
+        let modulus = BigNum::from_slice(self.modulus.to_vec().as_slice()).unwrap();
+        let value = BigNum::from_slice(self.value.to_vec().as_slice()).unwrap();
+        let mut members = BTreeSet::new();
+        for m in &self.members {
+            members.insert(BigNum::from_slice(m.to_vec().as_slice()).unwrap());
+        }
+
         Self {
-            generator: primes[0].clone(),
-            members: BTreeSet::new(),
-            modulus: primes[1].clone() * primes[2].clone(),
-            value: primes[0].clone()
+            generator,
+            modulus,
+            members,
+            value
         }
     }
 }
@@ -146,19 +169,19 @@ impl TryFrom<&[u8]> for Accumulator {
         }
 
         let mut offset = 0;
-        let mut end = FACTOR_SIZE;
+        let mut end = FACTOR_SIZE * 2;
 
-        let generator = BigUint::from_bytes_be(&data[offset..end]);
-
-        offset = end;
-        end = offset + 2 * FACTOR_SIZE;
-
-        let value = BigUint::from_bytes_be(&data[offset..end]);
+        let generator = BigNum::from_slice(&data[offset..end]).unwrap();
 
         offset = end;
         end = offset + 2 * FACTOR_SIZE;
 
-        let modulus = BigUint::from_bytes_be(&data[offset..end]);
+        let value = BigNum::from_slice(&data[offset..end]).unwrap();
+
+        offset = end;
+        end = offset + 2 * FACTOR_SIZE;
+
+        let modulus = BigNum::from_slice(&data[offset..end]).unwrap();
 
         offset = end;
         end = offset + 4;
@@ -169,7 +192,7 @@ impl TryFrom<&[u8]> for Accumulator {
         offset = end;
         end = offset + MEMBER_SIZE;
         for _ in 0..member_count {
-            let m = BigUint::from_bytes_be(&data[offset..end]);
+            let m = BigNum::from_slice(&data[offset..end]).unwrap();
             members.insert(m);
             offset = end;
             end = offset + MEMBER_SIZE;
@@ -232,7 +255,7 @@ macro_rules! add_two_ref_impl {
 }
 
 add_two_ref_impl!([u8], |rhs| rhs);
-add_ref_impl!(BigUint, |rhs: BigUint| rhs.to_bytes_be());
+add_ref_impl!(BigNum, |rhs: BigNum| rhs.to_vec());
 add_ref_impl!(u64, |rhs: u64| rhs.to_be_bytes());
 add_ref_impl!(u32, |rhs: u32| rhs.to_be_bytes());
 add_ref_impl!(i64, |rhs: i64| rhs.to_be_bytes());
@@ -254,32 +277,19 @@ impl<'a, 'b> Add<&'b str> for &'a Accumulator {
     }
 }
 
-/// BigUint to fixed array
-fn b2fa(b: &BigUint, expected_size: usize) -> Vec<u8> {
-    let mut t = vec![0u8; expected_size];
-    let bt = b.to_bytes_be();
-    assert!(expected_size >= bt.len(), format!("expected = {}, found = {}", expected_size, bt.len()));
-    t[(expected_size - bt.len())..].clone_from_slice(bt.as_slice());
-    t
-}
-
 #[cfg(not(test))]
-fn gen_primes() -> Vec<BigUint> {
-    (0..3).collect::<Vec<usize>>().par_iter().map(|_| {
-        gen_safe_prime(MIN_SIZE_PRIME).unwrap()
-    }).collect()
+fn random_qr(modulus: &BigNum) -> BigNum {
+    let mut ctx = BigNumContext::new().unwrap();
+    let mut rr = BigNum::new().unwrap();
+    let mut qr = BigNum::new().unwrap();
+    BigNumRef::rand_range(modulus, &mut rr).unwrap();
+    BigNumRef::mod_sqr(&mut qr, &rr, modulus, &mut ctx).unwrap();
+    qr
 }
 
 #[cfg(test)]
-fn gen_primes() -> Vec<BigUint> {
-    use num_traits::Num;
-    // Taken from https://github.com/mikelodder7/cunningham_chain/blob/master/findings.md
-    // because Accumulator::default() takes a long time
-    vec![
-        (BigUint::from_str_radix("76510636706393288402973018952427795147470564193069829622069209003733997084159144803363853656280756946149118081932181243022097881139700081470010118851209205854189955701724297010704364322171383509487901918283958716896143288755442068220698957513740353994270435468688023965338050723270523965709917111415635591723", 10).unwrap()),
-        (BigUint::from_str_radix("66295144163396665403376179086308918015255210762161712943347745256800426733181435998953954369657699924569095498869393378860769817738689910466139513014839505675023358799693196331874626976637176000078613744447569887988972970496824235261568439949705345174465781244618912962800788579976795988724553365066910412859", 10).unwrap() << 1) + 1u64,
-        (BigUint::from_str_radix("37313426856874901938110133384605074194791927500210707276948918975046371522830901596065044944558427864187196889881993164303255749681644627614963632713725183364319410825898054225147061624559894980555489070322738683900143562848200257354774040241218537613789091499134051387344396560066242901217378861764936185029", 10).unwrap() << 2) + 3u64
-    ]
+fn random_qr(_: &BigNum) -> BigNum {
+    BigNum::from_dec_str("14704636934945556701768512807551423295322582742569915447814799887124081071907200872335609067929374365739431897167843056332163350393002363708099338086779834093915457533918974672301807866170744567165914488714662630606969571079578621114846946738744248553592341323021622081633613877276260780228049365644707168869864141334294382732324161900480737159963215787522448535242091782123958096148785498247442279692457260152226937644334131336333591710801691378317437656720683740403317736682333718644263548862631065373402082561872142789630529965385994523257973199774135347149127815031308836928060871953543688304190675878204079994222").unwrap()
 }
 
 #[cfg(test)]
@@ -288,7 +298,8 @@ mod tests {
 
     #[test]
     fn bytes_test() {
-        let acc = Accumulator::default();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         let bytes = acc.to_bytes();
         assert_eq!(bytes.len(), MIN_BYTES);
         let res = Accumulator::try_from(bytes);
@@ -299,60 +310,68 @@ mod tests {
 
     #[test]
     fn default_test() {
-        let acc = Accumulator::default();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         assert_eq!(acc.generator, acc.value);
     }
 
     #[test]
     fn with_members_test() {
         let members: Vec<[u8; 8]> = vec![3u64.to_be_bytes(), 7u64.to_be_bytes(), 11u64.to_be_bytes(), 13u64.to_be_bytes()];
-        let mut acc = Accumulator::default();
+        let key = AccumulatorSecretKey::default();
+        let mut acc = Accumulator::new(&key);
         for m in &members {
             acc.insert_mut(m);
         }
-        let acc1 = Accumulator::with_members(members.as_slice());
+        let acc1 = Accumulator::with_members(&key, members.as_slice());
         assert_eq!(acc.value, acc1.value);
     }
 
     #[test]
     fn add_biguint_test() {
-        let biguint = BigUint::from(345_617_283_975_612_837_561_827_365u128);
-        let acc = Accumulator::new();
+        let biguint = BigNum::from_dec_str("345_617_283_975_612_837_561_827_365").unwrap();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         let acc1 = &acc + biguint;
         assert_ne!(acc1.value, acc.value);
     }
 
     #[test]
     fn add_string_test() {
-        let acc = Accumulator::new();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         let acc1 = &acc + "a test to see if my value is in the accumulator";
         assert_ne!(acc1.value, acc.value);
     }
 
     #[test]
     fn add_u64_test() {
-        let acc = Accumulator::new();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         let acc1 = &acc + 12_345_678_987_654u64;
         assert_ne!(acc1.value, acc.value);
     }
 
     #[test]
     fn add_u32_test() {
-        let acc = Accumulator::new();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         let acc1 = &acc + 123_456_789u32;
         assert_ne!(acc1.value, acc.value);
     }
 
     #[test]
     fn add_i64_test() {
-        let acc = Accumulator::new();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         let acc1 = &acc + 12_345_678_987_654i64;
         assert_ne!(acc1.value, acc.value);
     }
 
     #[test]
     fn add_i32_test() {
-        let acc = Accumulator::new();
+        let key = AccumulatorSecretKey::default();
+        let acc = Accumulator::new(&key);
         let acc1 = &acc + 123_456_789i32;
         assert_ne!(acc1.value, acc.value);
     }
