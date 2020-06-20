@@ -1,4 +1,10 @@
-use crate::{accumulator::Accumulator, key::AccumulatorSecretKey, clone_bignum};
+use crate::{
+    accumulator::Accumulator,
+    error::{AccumulatorErrorKind, AccumulatorError},
+    hash::hash_to_prime,
+    key::AccumulatorSecretKey,
+    clone_bignum
+};
 use openssl::bn::*;
 use rayon::prelude::*;
 
@@ -11,10 +17,14 @@ pub struct MembershipWitness {
 
 impl MembershipWitness {
     /// Return a new membership witness
-    pub fn new(accumulator: &Accumulator, x: &BigNum) -> Self {
+    pub fn new<B: AsRef<[u8]>>(accumulator: &Accumulator, x: B) -> Result<Self, AccumulatorError> {
+        let x = hash_to_prime(x.as_ref());
+        if !accumulator.members.contains(&x) {
+            return Err(AccumulatorError::from_msg(AccumulatorErrorKind::InvalidMemberSupplied, ""));
+        }
         let exp = accumulator.members.par_iter()
             .map(|b| clone_bignum(b))
-            .filter(|b| b != x)
+            .filter(|b| b != &x)
             .reduce(|| BigNum::from_u32(1).unwrap(),
                     |a, b| {
                         let mut ctx = BigNumContext::new().unwrap();
@@ -25,18 +35,24 @@ impl MembershipWitness {
         let mut w = BigNum::new().unwrap();
         let mut ctx = BigNumContext::new().unwrap();
         BigNumRef::mod_exp(&mut w, &accumulator.generator, &exp, &accumulator.modulus, &mut ctx).unwrap();
-        MembershipWitness {
-            w, x: clone_bignum(x)
-        }
+        Ok(MembershipWitness {
+            w, x
+        })
     }
 
     /// Return a new membership witness. This is more efficient that `new` due to
     /// the ability to reduce by the totient
-    pub fn with_secret_key(accumulator: &Accumulator, secret_key: &AccumulatorSecretKey, x: &BigNum) -> Self {
+    pub fn with_secret_key<B: AsRef<[u8]>>(accumulator: &Accumulator, secret_key: &AccumulatorSecretKey, x: B) -> Self {
+        let x = hash_to_prime(x.as_ref());
+        if !accumulator.members.contains(&x) {
+            return MembershipWitness {
+                w: clone_bignum(&accumulator.value), x
+            };
+        }
         let totient = secret_key.totient();
         let exp = accumulator.members.par_iter()
             .map(|b| clone_bignum(b))
-            .filter(|b| b != x)
+            .filter(|b| b != &x)
             .reduce(|| BigNum::from_u32(1).unwrap(),
                     |a, b| {
                         let mut ctx = BigNumContext::new().unwrap();
@@ -48,8 +64,27 @@ impl MembershipWitness {
         let mut ctx = BigNumContext::new().unwrap();
         BigNumRef::mod_exp(&mut w, &accumulator.generator, &exp, &accumulator.modulus, &mut ctx).unwrap();
         MembershipWitness {
-            w, x: clone_bignum(x)
+            w, x
         }
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hash::hash_to_prime;
+
+    #[test]
+    fn witnesses() {
+        let key = AccumulatorSecretKey::default();
+        let members: Vec<[u8; 8]> = vec![3u64.to_be_bytes(), 7u64.to_be_bytes(), 11u64.to_be_bytes(), 13u64.to_be_bytes()];
+        let mut acc = Accumulator::with_members(&key, &members);
+        let witness = MembershipWitness::new(&acc, &members[0]).unwrap();
+        let x = hash_to_prime(&members[0]);
+        assert_eq!(witness.x, x);
+
+        acc.remove_mut(&key, &members[0]).unwrap();
+
+        assert_eq!(acc.value, witness.w);
+    }
+}

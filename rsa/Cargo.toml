@@ -16,6 +16,7 @@ maintenance = { status = "experimental" }
 [dependencies]
 arrayref = "0.3"
 blake2 = "0.8"
+failure = "0.1"
 hex = "0.4"
 rand = "0.7"
 rayon = "1.3"

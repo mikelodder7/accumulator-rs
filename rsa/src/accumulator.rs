@@ -1,15 +1,40 @@
-use crate::{key::AccumulatorSecretKey, hash::hash_to_prime, FACTOR_SIZE, MIN_BYTES, MEMBER_SIZE, b2fa, clone_bignum};
+use crate::{
+    error::{AccumulatorError, AccumulatorErrorKind},
+    key::AccumulatorSecretKey,
+    hash::hash_to_prime,
+    FACTOR_SIZE,
+    MIN_BYTES,
+    MEMBER_SIZE,
+    b2fa,
+    clone_bignum
+};
 use openssl::bn::*;
 use rayon::prelude::*;
 use serde::{Serialize, Deserialize, Serializer, Deserializer, de::{Error as DError, Visitor}};
 use std::{
     convert::TryFrom,
     fmt::Formatter,
-    ops::Add,
+    ops::{Add, AddAssign},
     collections::BTreeSet,
 };
 
-/// Represents a Universal RSA Accumulator
+macro_rules! remove_type {
+    ($remove:ident, $remove_mut:ident, $ty:ty) => {
+        /// Remove a stringify!($ty) from the accumulator if it exists
+        pub fn $remove(&self, key: &AccumulatorSecretKey, v: $ty) -> Result<Self, AccumulatorError> {
+            let mut a = self.clone();
+            a.remove_mut(key, v.to_be_bytes())?;
+            Ok(a)
+        }
+
+        /// Remove a stringify!($ty) from the accumulator if it exists
+        pub fn $remove_mut(&mut self, key: &AccumulatorSecretKey, v: $ty) -> Result<(), AccumulatorError> {
+            self.remove_mut(key, v.to_be_bytes())
+        }
+    };
+}
+
+/// Represents a Universal RSA Accumulator.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Accumulator {
     /// The initial value of the accumulator and the generator
@@ -71,38 +96,39 @@ impl Accumulator {
     }
 
     /// Add a value to the accumulator, the value will be hashed to a prime number first
-    pub fn insert<B: AsRef<[u8]>>(&self, value: B) -> Self {
+    pub fn insert<B: AsRef<[u8]>>(&self, value: B) -> Result<Self, AccumulatorError> {
         let mut a = self.clone();
-        a.insert_mut(value);
-        a
+        a.insert_mut(value)?;
+        Ok(a)
     }
 
     /// Add a value an update this accumulator
-    pub fn insert_mut<B: AsRef<[u8]>>(&mut self, value: B) {
+    pub fn insert_mut<B: AsRef<[u8]>>(&mut self, value: B) -> Result<(), AccumulatorError> {
         let p = hash_to_prime(value);
         if self.members.contains(&p) {
-            return;
+            return Err(AccumulatorErrorKind::DuplicateValueSupplied.into());
         }
         self.members.insert(clone_bignum(&p));
         let mut ctx = BigNumContext::new().unwrap();
         let mut v = BigNum::new().unwrap();
         BigNumRef::mod_exp(&mut v, &self.value, &p, &self.modulus, &mut ctx).unwrap();
         self.value = v;
+        Ok(())
     }
 
     /// Remove a value from the accumulator and return
     /// a new accumulator without `value`
-    pub fn delete<B: AsRef<[u8]>>(&self, key: &AccumulatorSecretKey, value: B) -> Self {
+    pub fn remove<B: AsRef<[u8]>>(&self, key: &AccumulatorSecretKey, value: B) -> Result<Self, AccumulatorError> {
         let mut a = self.clone();
-        a.delete_mut(&key, value);
-        a
+        a.remove_mut(key, value)?;
+        Ok(a)
     }
 
-    /// Remove a value from this accumulator
-    pub fn delete_mut<B: AsRef<[u8]>>(&mut self, key: &AccumulatorSecretKey, value: B) {
+    /// Remove a value from the accumulator if it exists
+    pub fn remove_mut<B: AsRef<[u8]>>(&mut self, key: &AccumulatorSecretKey, value: B) -> Result<(), AccumulatorError> {
         let v = hash_to_prime(value);
         if !self.members.contains(&v) {
-            return;
+            return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
         }
         let t = key.totient();
         let mut ctx = BigNumContext::new().unwrap();
@@ -112,6 +138,7 @@ impl Accumulator {
         let mut value = BigNum::new().unwrap();
         BigNumRef::mod_exp(&mut value, &self.value, &v_1, &self.modulus, &mut ctx).unwrap();
         self.value = value;
+        Ok(())
     }
 
     /// Convert accumulator to bytes
@@ -131,16 +158,25 @@ impl Accumulator {
 
         out
     }
+
+    remove_type!(remove_u64, remove_u64_mut, u64);
+    remove_type!(remove_u32, remove_u32_mut, u32);
+    remove_type!(remove_u16, remove_u16_mut, u16);
+    remove_type!(remove_u8, remove_u8_mut, u8);
+    remove_type!(remove_i64, remove_i64_mut, i64);
+    remove_type!(remove_i32, remove_i32_mut, i32);
+    remove_type!(remove_i16, remove_i16_mut, i16);
+    remove_type!(remove_i8, remove_i8_mut, i8);
 }
 
 impl Clone for Accumulator {
     fn clone(&self) -> Self {
-        let generator = BigNum::from_slice(self.generator.to_vec().as_slice()).unwrap();
-        let modulus = BigNum::from_slice(self.modulus.to_vec().as_slice()).unwrap();
-        let value = BigNum::from_slice(self.value.to_vec().as_slice()).unwrap();
+        let generator = clone_bignum(&self.generator);
+        let modulus = clone_bignum(&self.modulus);
+        let value = clone_bignum(&self.value);
         let mut members = BTreeSet::new();
         for m in &self.members {
-            members.insert(BigNum::from_slice(m.to_vec().as_slice()).unwrap());
+            members.insert(clone_bignum(&m));
         }
 
         Self {
@@ -214,7 +250,13 @@ macro_rules! add_impl {
             type Output = Self;
 
             fn add(self, rhs: $ty) -> Self::Output {
-                self.insert($c(rhs))
+                self.insert($c(rhs)).unwrap()
+            }
+        }
+
+        impl AddAssign<$ty> for Accumulator {
+            fn add_assign(&mut self, rhs: $ty) {
+                self.insert_mut($c(rhs)).unwrap()
             }
         }
     };
@@ -228,7 +270,7 @@ macro_rules! add_ref_impl {
             type Output = Accumulator;
 
             fn add(self, rhs: $ty) -> Self::Output {
-                self.insert($c(rhs))
+                self.insert($c(rhs)).unwrap()
             }
         }
     };
@@ -240,7 +282,7 @@ macro_rules! add_two_ref_impl {
             type Output = Self;
 
             fn add(self, rhs: &$ty) -> Self::Output {
-                self.insert($c(rhs))
+                self.insert($c(rhs)).unwrap()
             }
         }
 
@@ -248,24 +290,35 @@ macro_rules! add_two_ref_impl {
             type Output = Accumulator;
 
             fn add(self, rhs: &'b $ty) -> Self::Output {
-                self.insert($c(rhs))
+                self.insert($c(rhs)).unwrap()
+            }
+        }
+
+        impl AddAssign<&$ty> for Accumulator {
+            fn add_assign(&mut self, rhs: &$ty) {
+                self.insert_mut($c(rhs)).unwrap()
             }
         }
     };
 }
 
 add_two_ref_impl!([u8], |rhs| rhs);
+add_two_ref_impl!(BigNum, |rhs: &BigNum| rhs.to_vec());
 add_ref_impl!(BigNum, |rhs: BigNum| rhs.to_vec());
 add_ref_impl!(u64, |rhs: u64| rhs.to_be_bytes());
 add_ref_impl!(u32, |rhs: u32| rhs.to_be_bytes());
+add_ref_impl!(u16, |rhs: u16| rhs.to_be_bytes());
+add_ref_impl!(u8, |rhs: u8| rhs.to_be_bytes());
 add_ref_impl!(i64, |rhs: i64| rhs.to_be_bytes());
 add_ref_impl!(i32, |rhs: i32| rhs.to_be_bytes());
+add_ref_impl!(i16, |rhs: i16| rhs.to_be_bytes());
+add_ref_impl!(i8, |rhs: i8| rhs.to_be_bytes());
 
 impl Add<&str> for Accumulator {
     type Output = Self;
 
     fn add(self, rhs: &str) -> Self::Output {
-        self.insert(rhs.as_bytes())
+        self.insert(rhs.as_bytes()).unwrap()
     }
 }
 
@@ -273,7 +326,13 @@ impl<'a, 'b> Add<&'b str> for &'a Accumulator {
     type Output = Accumulator;
 
     fn add(self, rhs: &'b str) -> Self::Output {
-        self.insert(rhs.as_bytes())
+        self.insert(rhs.as_bytes()).unwrap()
+    }
+}
+
+impl AddAssign<&str> for Accumulator {
+    fn add_assign(&mut self, rhs: &str) {
+        self.insert_mut(rhs.as_bytes()).unwrap();
     }
 }
 
@@ -295,6 +354,18 @@ fn random_qr(_: &BigNum) -> BigNum {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    macro_rules! add_type_test {
+        ($name:ident, $c:expr) => {
+            #[test]
+            fn $name() {
+                let key = AccumulatorSecretKey::default();
+                let acc = Accumulator::new(&key);
+                let acc1 = &acc + $c;
+                assert_ne!(acc1.value, acc.value);
+            }
+        };
+    }
 
     #[test]
     fn bytes_test() {
@@ -321,58 +392,30 @@ mod tests {
         let key = AccumulatorSecretKey::default();
         let mut acc = Accumulator::new(&key);
         for m in &members {
-            acc.insert_mut(m);
+            acc.insert_mut(m).unwrap();
         }
         let acc1 = Accumulator::with_members(&key, members.as_slice());
         assert_eq!(acc.value, acc1.value);
     }
 
     #[test]
-    fn add_biguint_test() {
+    fn add_error_test() {
         let biguint = BigNum::from_dec_str("345_617_283_975_612_837_561_827_365").unwrap();
         let key = AccumulatorSecretKey::default();
-        let acc = Accumulator::new(&key);
-        let acc1 = &acc + biguint;
-        assert_ne!(acc1.value, acc.value);
+        let mut acc = Accumulator::new(&key);
+        acc += &biguint;
+        let res = acc.insert_mut(biguint.to_vec());
+        assert!(res.is_err());
     }
 
-    #[test]
-    fn add_string_test() {
-        let key = AccumulatorSecretKey::default();
-        let acc = Accumulator::new(&key);
-        let acc1 = &acc + "a test to see if my value is in the accumulator";
-        assert_ne!(acc1.value, acc.value);
-    }
-
-    #[test]
-    fn add_u64_test() {
-        let key = AccumulatorSecretKey::default();
-        let acc = Accumulator::new(&key);
-        let acc1 = &acc + 12_345_678_987_654u64;
-        assert_ne!(acc1.value, acc.value);
-    }
-
-    #[test]
-    fn add_u32_test() {
-        let key = AccumulatorSecretKey::default();
-        let acc = Accumulator::new(&key);
-        let acc1 = &acc + 123_456_789u32;
-        assert_ne!(acc1.value, acc.value);
-    }
-
-    #[test]
-    fn add_i64_test() {
-        let key = AccumulatorSecretKey::default();
-        let acc = Accumulator::new(&key);
-        let acc1 = &acc + 12_345_678_987_654i64;
-        assert_ne!(acc1.value, acc.value);
-    }
-
-    #[test]
-    fn add_i32_test() {
-        let key = AccumulatorSecretKey::default();
-        let acc = Accumulator::new(&key);
-        let acc1 = &acc + 123_456_789i32;
-        assert_ne!(acc1.value, acc.value);
-    }
+    add_type_test!(add_bignum_test, BigNum::from_dec_str("345_617_283_975_612_837_561_827_365").unwrap());
+    add_type_test!(add_string_test, "a test to see if my value is in the accumulator");
+    add_type_test!(add_u64_test, 12_345_678_987_654u64);
+    add_type_test!(add_i64_test, 12_345_678_987_654i64);
+    add_type_test!(add_u32_test, 123_456_789u32);
+    add_type_test!(add_i32_test, 123_456_789i32);
+    add_type_test!(add_u16_test, 65432u16);
+    add_type_test!(add_i16_test, 31432i16);
+    add_type_test!(add_u8_test, 255u8);
+    add_type_test!(add_i8_test, 127i8);
 }

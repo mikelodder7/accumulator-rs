@@ -32,6 +32,8 @@ pub mod accumulator;
 pub mod witness;
 /// Proofs of set membership
 pub mod memproof;
+/// Errors
+pub mod error;
 
 /// BigUint to fixed array
 pub(crate) fn b2fa(b: &BigNum, expected_size: usize) -> Vec<u8> {
