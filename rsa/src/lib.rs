@@ -22,6 +22,15 @@ use openssl::bn::*;
 
 #[macro_use]
 mod macros;
+#[cfg(feature = "openssl")]
+#[path = "bigint_openssl.rs"]
+mod bigint;
+#[cfg(feature = "rust-gmp")]
+#[path = "bigint_gmp.rs"]
+mod bigint;
+#[cfg(feature = "bigint-rust")]
+#[path = "bigint_rust"]
+mod bigint;
 /// Provides an accumulator secret factors
 pub mod key;
 /// Provides methods for hashing to prime
@@ -34,6 +43,14 @@ pub mod witness;
 pub mod memproof;
 /// Errors
 pub mod error;
+
+#[cfg(not(any(feature = "openssl", feature = "rust-gmp", feature = "num-bigint")))]
+compile_error!("A big number library must be chosen: either bigint-rust, openssl, or rust-gmp");
+#[cfg(any(all(feature = "openssl", feature = "rust-gmp", feature = "bigint-rust"),
+          all(feature = "openssl", feature = "rust-gmp"),
+          all(feature = "openssl", feature = "bigint-rust"),
+          all(feature = "bigint-rust", feature = "rust-gmp")))]
+compile_error!("Only one big number library must be chosen: either bigint-rust, openssl, or rust-gmp");
 
 /// BigUint to fixed array
 pub(crate) fn b2fa(b: &BigNum, expected_size: usize) -> Vec<u8> {

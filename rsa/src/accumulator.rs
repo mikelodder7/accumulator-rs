@@ -83,7 +83,6 @@ impl Accumulator {
             t
         });
         let generator = random_qr(&modulus);
-        println!("generator = {:?}", generator);
         let mut value = BigNum::new().unwrap();
         let mut ctx = BigNumContext::new().unwrap();
         BigNumRef::mod_exp(&mut value, &generator, &exp, &modulus, &mut ctx).unwrap();

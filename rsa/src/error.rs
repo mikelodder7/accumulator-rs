@@ -1,8 +1,13 @@
 use failure::{Backtrace, Context, Fail};
+#[cfg(feature = "openssl")]
+use openssl::error::ErrorStack;
 
 /// The error types
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
 pub enum AccumulatorErrorKind {
+    /// Type cannot be converted to an BigInt
+    #[fail(display = "Type cannot be converted to BigInt")]
+    InvalidType,
     /// When trying to add a member that already exists in the accumulator
     #[fail(display = "The value supplied already exists in the accumulator")]
     DuplicateValueSupplied,
@@ -71,5 +76,12 @@ impl From<Context<AccumulatorErrorKind>> for AccumulatorError {
 impl From<AccumulatorErrorKind> for AccumulatorError {
     fn from(err: AccumulatorErrorKind) -> Self {
         AccumulatorError::from_msg(err, "")
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<ErrorStack> for AccumulatorError {
+    fn from(err: ErrorStack) -> Self {
+        AccumulatorError::from_msg(AccumulatorErrorKind::InvalidType, err.errors().iter().map(|e| e.reason().unwrap_or("")).collect::<Vec<&str>>().join(","))
     }
 }
