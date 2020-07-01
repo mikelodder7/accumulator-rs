@@ -1,18 +1,19 @@
 use crate::{
     accumulator::Accumulator,
-    error::{AccumulatorErrorKind, AccumulatorError},
     hash::hash_to_prime,
     key::AccumulatorSecretKey,
-    clone_bignum
 };
-use openssl::bn::*;
+use common::{
+    bigint::BigInteger,
+    error::{AccumulatorErrorKind, AccumulatorError},
+};
 use rayon::prelude::*;
 
 /// A witness that can be used for membership proofs
 #[derive(Debug, Eq, PartialEq)]
 pub struct MembershipWitness {
-    pub(crate) w: BigNum,
-    pub(crate) x: BigNum
+    pub(crate) u: BigInteger,
+    pub(crate) x: BigInteger,
 }
 
 impl MembershipWitness {
@@ -23,20 +24,12 @@ impl MembershipWitness {
             return Err(AccumulatorError::from_msg(AccumulatorErrorKind::InvalidMemberSupplied, ""));
         }
         let exp = accumulator.members.par_iter()
-            .map(|b| clone_bignum(b))
+            .cloned()
             .filter(|b| b != &x)
-            .reduce(|| BigNum::from_u32(1).unwrap(),
-                    |a, b| {
-                        let mut ctx = BigNumContext::new().unwrap();
-                        let mut t = BigNum::new().unwrap();
-                        BigNumRef::checked_mul(&mut t, &a, &b, &mut ctx).unwrap();
-                        t
-                    });
-        let mut w = BigNum::new().unwrap();
-        let mut ctx = BigNumContext::new().unwrap();
-        BigNumRef::mod_exp(&mut w, &accumulator.generator, &exp, &accumulator.modulus, &mut ctx).unwrap();
+            .product();
+        let u = (&accumulator.generator).mod_exp(&exp, &accumulator.modulus);
         Ok(MembershipWitness {
-            w, x
+            u, x
         })
     }
 
@@ -46,25 +39,18 @@ impl MembershipWitness {
         let x = hash_to_prime(x.as_ref());
         if !accumulator.members.contains(&x) {
             return MembershipWitness {
-                w: clone_bignum(&accumulator.value), x
+                u: accumulator.value.clone(), x
             };
         }
         let totient = secret_key.totient();
+        let f = common::Field::new(&totient);
         let exp = accumulator.members.par_iter()
-            .map(|b| clone_bignum(b))
+            .cloned()
             .filter(|b| b != &x)
-            .reduce(|| BigNum::from_u32(1).unwrap(),
-                    |a, b| {
-                        let mut ctx = BigNumContext::new().unwrap();
-                        let mut t = BigNum::new().unwrap();
-                        BigNumRef::mod_mul(&mut t, &a, &b, &totient, &mut ctx).unwrap();
-                        t
-                    });
-        let mut w = BigNum::new().unwrap();
-        let mut ctx = BigNumContext::new().unwrap();
-        BigNumRef::mod_exp(&mut w, &accumulator.generator, &exp, &accumulator.modulus, &mut ctx).unwrap();
+            .reduce(|| BigInteger::from(1u32), |a, b| f.mul(&a, &b));
+        let u = (&accumulator.generator).mod_exp(&exp, &accumulator.modulus);
         MembershipWitness {
-            w, x
+            u, x
         }
     }
 }
@@ -85,6 +71,6 @@ mod tests {
 
         acc.remove_mut(&key, &members[0]).unwrap();
 
-        assert_eq!(acc.value, witness.w);
+        assert_eq!(acc.value, witness.u);
     }
 }

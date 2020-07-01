@@ -1,22 +1,24 @@
+/// Implement Serialization methods based on TryFrom
+#[macro_export]
 macro_rules! serdes_impl {
     ($name:ident) => {
-        impl Serialize for $name {
+        impl serde::Serialize for $name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
-                S: Serializer,
+                S: serde::Serializer,
             {
                 serializer.serialize_bytes(&self.to_bytes()[..])
             }
         }
 
-        impl<'a> Deserialize<'a> for $name {
+        impl<'a> serde::Deserialize<'a> for $name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
-                D: Deserializer<'a>,
+                D: serde::Deserializer<'a>,
             {
                 struct DeserializeVisitor;
 
-                impl<'a> Visitor<'a> for DeserializeVisitor {
+                impl<'a> serde::de::Visitor<'a> for DeserializeVisitor {
                     type Value = $name;
 
                     fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
@@ -25,10 +27,10 @@ macro_rules! serdes_impl {
 
                     fn visit_bytes<E>(self, value: &[u8]) -> Result<$name, E>
                     where
-                        E: DError,
+                        E: serde::de::Error,
                     {
                         $name::try_from(value).map_err(|_| {
-                            DError::invalid_value(serde::de::Unexpected::Bytes(value), &self)
+                            serde::de::Error::invalid_value(serde::de::Unexpected::Bytes(value), &self)
                         })
                     }
                 }

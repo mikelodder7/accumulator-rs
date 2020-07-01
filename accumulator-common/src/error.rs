@@ -5,8 +5,8 @@ use openssl::error::ErrorStack;
 /// The error types
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
 pub enum AccumulatorErrorKind {
-    /// Type cannot be converted to an BigInt
-    #[fail(display = "Type cannot be converted to BigInt")]
+    /// Type cannot be converted to an BigInteger
+    #[fail(display = "Type cannot be converted to BigInteger")]
     InvalidType,
     /// When trying to add a member that already exists in the accumulator
     #[fail(display = "The value supplied already exists in the accumulator")]
