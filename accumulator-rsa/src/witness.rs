@@ -79,16 +79,23 @@ impl MembershipWitness {
     /// Create a new witness to match `new_acc` from `old_acc` using this witness
     /// by applying the methods found in 4.2 in
     /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
-    pub fn update(&self, old_acc: &Accumulator, new_acc: &Accumulator) -> Self {
+    pub fn update(&self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<Self, AccumulatorError> {
         let mut w = self.clone();
-        w.update_assign(old_acc, new_acc);
-        w
+        w.update_assign(old_acc, new_acc)?;
+        Ok(w)
     }
 
     /// Update this witness to match `new_acc` from `old_acc`
     /// by applying the methods found in 4.2 in
     /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
-    pub fn update_assign(&mut self, old_acc: &Accumulator, new_acc: &Accumulator) {
+    pub fn update_assign(&mut self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<(), AccumulatorError> {
+        if !new_acc.members.contains(&self.x) {
+            return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
+        }
+        if !old_acc.members.contains(&self.x) {
+            return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
+        }
+
         let additions: Vec<&BigInteger> = new_acc.members.difference(&old_acc.members).collect();
         let deletions: Vec<&BigInteger> = old_acc.members.difference(&new_acc.members).collect();
         let x: BigInteger = new_acc.members.par_iter().product();
@@ -103,6 +110,7 @@ impl MembershipWitness {
             &f.exp(&f.exp(&self.u, &x_a), &gcd_res.b),
             &f.exp(&new_acc.value, &gcd_res.a),
         );
+        Ok(())
     }
 
     /// Serialize this to bytes
@@ -125,7 +133,6 @@ impl TryFrom<&[u8]> for MembershipWitness {
         Ok(Self { u, x })
     }
 }
-
 
 serdes_impl!(MembershipWitness);
 

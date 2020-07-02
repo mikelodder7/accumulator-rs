@@ -8,6 +8,26 @@ witness value reduced by the modulus. One can think of this as RSA encryption. R
 This implementation uses the POKE2 method with proofs. RSA proofs can also be aggregated using Proof of Knowledge of
 Coprime Roots which reduces the proof to be a single element.
 
+# Features
+
+- [x] Accumulators
+   - [x] Add new members
+   - [x] Remove existing members
+- [x] Witness
+   - [x] Create
+   - [x] Update
+   - [ ] Aggregation
+- [x] Membership Proof
+   - [x] Generate
+   - [x] Verify
+- [ ] Non-Membership Proof
+   - [ ] Generate 
+   - [ ] Verify 
+   - [ ] Aggregation
+- [ ] Vector Accumulator
+   - [ ] Add new members
+   - [ ] Remove existing members
+    
 # References
 
 [Boneh, D., Bunz, B., Fisch, B., Batching Techniques for Accumulators with Applications to IOPs and Stateless Blockchains, 2018](https://eprint.iacr.org/2018/1188.pdf)
