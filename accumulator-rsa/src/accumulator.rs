@@ -66,6 +66,7 @@ impl Accumulator {
     pub fn with_members<M: AsRef<[B]>, B: AsRef<[u8]>>(key: &AccumulatorSecretKey, m: M) -> Self {
         let modulus = key.modulus();
         let m: Vec<&[u8]> = m.as_ref().iter().map(|b| b.as_ref()).collect();
+        println!("hash_to_prime");
         let members: BTreeSet<BigInteger> = m.par_iter().map(|b| hash_to_prime(b)).collect();
         let totient = key.totient();
 
@@ -76,6 +77,7 @@ impl Accumulator {
         // To batch add values to the exponent, compute
         // \pi_add = (x_1 * ... * x_n) \mod (\varphi)
         // v ^ {\pi_add} mod N
+        println!("mod_mul");
         let exp = members.par_iter().cloned().reduce(|| BigInteger::from(1u32), |v, m| {
             v.mod_mul(&m, &totient)
         });
