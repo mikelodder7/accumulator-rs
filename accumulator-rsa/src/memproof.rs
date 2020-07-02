@@ -95,7 +95,9 @@ impl MembershipProof {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rayon::prelude::*;
     use crate::key::AccumulatorSecretKey;
+    use crate::MEMBER_SIZE_BITS;
 
     #[test]
     fn proof_test() {
@@ -107,7 +109,7 @@ mod tests {
 
         let proof = MembershipProof::new(&witness, &acc, nonce);
         assert!(proof.verify(&acc, nonce));
-        acc.remove_mut(&key, &members[0]).unwrap();
+        acc.remove_assign(&key, &members[0]).unwrap();
 
         assert!(!proof.verify(&acc, nonce));
     }
@@ -115,14 +117,14 @@ mod tests {
     #[test]
     fn big_proof_test() {
         let key = AccumulatorSecretKey::default();
-        let members: Vec<[u8; 8]> = (0..100_000u64).collect::<Vec<u64>>().iter().map(|i| i.to_be_bytes()).collect();
-        let mut acc = Accumulator::with_members(&key, &members);
-        let witness = MembershipWitness::new(&acc, &members[0]).unwrap();
+        let members: Vec<BigInteger> = (0..1_000).collect::<Vec<_>>().par_iter().map(|_| BigInteger::generate_prime(MEMBER_SIZE_BITS)).collect();
+        let mut acc = Accumulator::with_prime_members(&key, &members).unwrap();
+        let witness = MembershipWitness::new_prime(&acc, &members[0]).unwrap();
         let nonce = b"big_proof_test";
 
         let proof = MembershipProof::new(&witness, &acc, nonce);
         assert!(proof.verify(&acc, nonce));
-        acc.remove_mut(&key, &members[0]).unwrap();
+        acc.remove_prime_assign(&key, &members[0]).unwrap();
 
         assert!(!proof.verify(&acc, nonce));
     }

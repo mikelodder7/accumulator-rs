@@ -17,6 +17,7 @@ pub(crate) const MIN_SIZE_PRIME: usize = 1024;
 pub(crate) const FACTOR_SIZE: usize = MIN_SIZE_PRIME / 8;
 pub(crate) const MIN_BYTES: usize = FACTOR_SIZE * 6 + 4;
 pub(crate) const MEMBER_SIZE: usize = 32;
+pub(crate) const MEMBER_SIZE_BITS: usize = 256;
 
 /// Provides an accumulator secret factors
 pub mod key;

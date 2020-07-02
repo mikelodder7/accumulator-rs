@@ -1,11 +1,4 @@
-use crate::{
-    key::AccumulatorSecretKey,
-    hash::hash_to_prime,
-    FACTOR_SIZE,
-    MIN_BYTES,
-    MEMBER_SIZE,
-    b2fa,
-};
+use crate::{key::AccumulatorSecretKey, hash::hash_to_prime, FACTOR_SIZE, MIN_BYTES, MEMBER_SIZE, b2fa, MEMBER_SIZE_BITS};
 use common::{
     bigint::BigInteger,
     error::{AccumulatorError, AccumulatorErrorKind},
@@ -23,13 +16,13 @@ macro_rules! remove_type {
         /// Remove a stringify!($ty) from the accumulator if it exists
         pub fn $remove(&self, key: &AccumulatorSecretKey, v: $ty) -> Result<Self, AccumulatorError> {
             let mut a = self.clone();
-            a.remove_mut(key, v.to_be_bytes())?;
+            a.remove_assign(key, v.to_be_bytes())?;
             Ok(a)
         }
 
         /// Remove a stringify!($ty) from the accumulator if it exists
         pub fn $remove_mut(&mut self, key: &AccumulatorSecretKey, v: $ty) -> Result<(), AccumulatorError> {
-            self.remove_mut(key, v.to_be_bytes())
+            self.remove_assign(key, v.to_be_bytes())
         }
     };
 }
@@ -64,12 +57,22 @@ impl Accumulator {
 
     /// Initialize a new accumulator prefilled with entries
     pub fn with_members<M: AsRef<[B]>, B: AsRef<[u8]>>(key: &AccumulatorSecretKey, m: M) -> Self {
-        let modulus = key.modulus();
         let m: Vec<&[u8]> = m.as_ref().iter().map(|b| b.as_ref()).collect();
-        println!("hash_to_prime");
         let members: BTreeSet<BigInteger> = m.par_iter().map(|b| hash_to_prime(b)).collect();
-        let totient = key.totient();
+        Self::_add_members(key, members)
+    }
 
+
+    /// Add prehash members which doesn't do hash_to_prime but just checks for prime
+    pub fn with_prime_members(key: &AccumulatorSecretKey, m: &[BigInteger]) -> Result<Self, AccumulatorError> {
+        let members: BTreeSet<BigInteger> = m.par_iter().cloned().collect();
+        if members.par_iter().any(|b| !b.is_prime()) {
+            return Err(AccumulatorError::from_msg(AccumulatorErrorKind::InvalidMemberSupplied, "Some values are not prime and cannot be added"))
+        }
+        Ok(Self::_add_members(key, members))
+    }
+
+    fn _add_members(key: &AccumulatorSecretKey, members: BTreeSet<BigInteger>) -> Self {
         // From section 3.2 in https://cs.brown.edu/people/alysyans/papers/camlys02.pdf
         // For Update of the accumulator value:
         // N = p * q
@@ -77,10 +80,11 @@ impl Accumulator {
         // To batch add values to the exponent, compute
         // \pi_add = (x_1 * ... * x_n) \mod (\varphi)
         // v ^ {\pi_add} mod N
-        println!("mod_mul");
+        let totient = key.totient();
         let exp = members.par_iter().cloned().reduce(|| BigInteger::from(1u32), |v, m| {
             v.mod_mul(&m, &totient)
         });
+        let modulus = key.modulus();
         let generator = random_qr(&modulus);
         let value = (&generator).mod_exp(&exp, &modulus);
         Self {
@@ -94,18 +98,40 @@ impl Accumulator {
     /// Add a value to the accumulator, the value will be hashed to a prime number first
     pub fn insert<B: AsRef<[u8]>>(&self, value: B) -> Result<Self, AccumulatorError> {
         let mut a = self.clone();
-        a.insert_mut(value)?;
+        a.insert_assign(value)?;
         Ok(a)
     }
 
     /// Add a value an update this accumulator
-    pub fn insert_mut<B: AsRef<[u8]>>(&mut self, value: B) -> Result<(), AccumulatorError> {
+    pub fn insert_assign<B: AsRef<[u8]>>(&mut self, value: B) -> Result<(), AccumulatorError> {
         let p = hash_to_prime(value);
-        if self.members.contains(&p) {
+        self._insert(&p)
+    }
+
+    /// Add a prime value to the accumulator, the value will be checked for primality first
+    pub fn insert_prime(&self, value: &BigInteger) -> Result<Self, AccumulatorError> {
+        let mut a = self.clone();
+        a.insert_prime_assign(value)?;
+        Ok(a)
+    }
+
+    /// Add a prime value an update this accumulator
+    pub fn insert_prime_assign(&mut self, value: &BigInteger) -> Result<(), AccumulatorError> {
+        if !value.is_prime() {
+            return Err(AccumulatorError::from_msg(AccumulatorErrorKind::InvalidMemberSupplied, "value is not prime"));
+        }
+        if value.bits() < MEMBER_SIZE_BITS {
+            return Err(AccumulatorError::from_msg(AccumulatorErrorKind::InvalidMemberSupplied, "value is not sufficiently large to be safely accumulated"));
+        }
+        self._insert(value)
+    }
+
+    fn _insert(&mut self, value: &BigInteger) -> Result<(), AccumulatorError>{
+        if self.members.contains(&value) {
             return Err(AccumulatorErrorKind::DuplicateValueSupplied.into());
         }
-        self.members.insert(p.clone());
-        self.value.mod_exp_assign(&p, &self.modulus);
+        self.members.insert(value.clone());
+        self.value.mod_exp_assign(&value, &self.modulus);
         Ok(())
     }
 
@@ -113,19 +139,36 @@ impl Accumulator {
     /// a new accumulator without `value`
     pub fn remove<B: AsRef<[u8]>>(&self, key: &AccumulatorSecretKey, value: B) -> Result<Self, AccumulatorError> {
         let mut a = self.clone();
-        a.remove_mut(key, value)?;
+        a.remove_assign(key, value)?;
         Ok(a)
     }
 
     /// Remove a value from the accumulator if it exists
-    pub fn remove_mut<B: AsRef<[u8]>>(&mut self, key: &AccumulatorSecretKey, value: B) -> Result<(), AccumulatorError> {
+    pub fn remove_assign<B: AsRef<[u8]>>(&mut self, key: &AccumulatorSecretKey, value: B) -> Result<(), AccumulatorError> {
         let v = hash_to_prime(value);
-        if !self.members.contains(&v) {
+        self._remove(key, &v)
+    }
+
+    /// Remove a prime value from the accumulator and return
+    /// a new accumulator without `value`
+    pub fn remove_prime(&self, key: &AccumulatorSecretKey, value: &BigInteger) -> Result<Self, AccumulatorError> {
+        let mut a = self.clone();
+        a.remove_prime_assign(key, value)?;
+        Ok(a)
+    }
+
+    /// Remove a prime value from the accumulator if it exists
+    pub fn remove_prime_assign(&mut self, key: &AccumulatorSecretKey, value: &BigInteger) -> Result<(), AccumulatorError> {
+        self._remove(key, value)
+    }
+
+    fn _remove(&mut self, key: &AccumulatorSecretKey, value: &BigInteger) -> Result<(), AccumulatorError> {
+        if !self.members.contains(&value) {
             return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
         }
         let t = key.totient();
-        self.members.remove(&v);
-        let v_inv = v.mod_inverse(&t);
+        self.members.remove(&value);
+        let v_inv = value.mod_inverse(&t);
         self.value.mod_exp_assign(&v_inv, &self.modulus);
         Ok(())
     }
@@ -148,14 +191,14 @@ impl Accumulator {
         out
     }
 
-    remove_type!(remove_u64, remove_u64_mut, u64);
-    remove_type!(remove_u32, remove_u32_mut, u32);
-    remove_type!(remove_u16, remove_u16_mut, u16);
-    remove_type!(remove_u8, remove_u8_mut, u8);
-    remove_type!(remove_i64, remove_i64_mut, i64);
-    remove_type!(remove_i32, remove_i32_mut, i32);
-    remove_type!(remove_i16, remove_i16_mut, i16);
-    remove_type!(remove_i8, remove_i8_mut, i8);
+    remove_type!(remove_u64, remove_u64_assign, u64);
+    remove_type!(remove_u32, remove_u32_assign, u32);
+    remove_type!(remove_u16, remove_u16_assign, u16);
+    remove_type!(remove_u8, remove_u8_assign, u8);
+    remove_type!(remove_i64, remove_i64_assign, i64);
+    remove_type!(remove_i32, remove_i32_assign, i32);
+    remove_type!(remove_i16, remove_i16_assign, i16);
+    remove_type!(remove_i8, remove_i8_assign, i8);
 }
 
 impl Clone for Accumulator {
@@ -237,7 +280,7 @@ macro_rules! add_impl {
 
         impl AddAssign<$ty> for Accumulator {
             fn add_assign(&mut self, rhs: $ty) {
-                self.insert_mut($c(rhs)).unwrap()
+                self.insert_assign($c(rhs)).unwrap()
             }
         }
     };
@@ -277,7 +320,7 @@ macro_rules! add_two_ref_impl {
 
         impl AddAssign<&$ty> for Accumulator {
             fn add_assign(&mut self, rhs: &$ty) {
-                self.insert_mut($c(rhs)).unwrap()
+                self.insert_assign($c(rhs)).unwrap()
             }
         }
     };
@@ -313,7 +356,7 @@ impl<'a, 'b> Add<&'b str> for &'a Accumulator {
 
 impl AddAssign<&str> for Accumulator {
     fn add_assign(&mut self, rhs: &str) {
-        self.insert_mut(rhs.as_bytes()).unwrap();
+        self.insert_assign(rhs.as_bytes()).unwrap();
     }
 }
 
@@ -368,10 +411,23 @@ mod tests {
         let key = AccumulatorSecretKey::default();
         let mut acc = Accumulator::new(&key);
         for m in &members {
-            acc.insert_mut(m).unwrap();
+            acc.insert_assign(m).unwrap();
         }
         let acc1 = Accumulator::with_members(&key, members.as_slice());
         assert_eq!(acc.value, acc1.value);
+    }
+
+    #[test]
+    fn with_prime_members_test() {
+        let mut members = Vec::new();
+        for _ in 0..10 {
+            members.push(BigInteger::generate_prime(256));
+        }
+        let key = AccumulatorSecretKey::default();
+        let res = Accumulator::with_prime_members(&key, members.as_slice());
+        assert!(res.is_ok());
+        let acc = res.unwrap();
+        assert!(members.iter().all(|m| acc.members.contains(m)));
     }
 
     #[test]
@@ -380,7 +436,7 @@ mod tests {
         let key = AccumulatorSecretKey::default();
         let mut acc = Accumulator::new(&key);
         acc += &biguint;
-        let res = acc.insert_mut(biguint.to_bytes());
+        let res = acc.insert_assign(biguint.to_bytes());
         assert!(res.is_err());
     }
 

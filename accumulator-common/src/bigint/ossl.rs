@@ -310,6 +310,11 @@ impl OsslBigInt {
         return (OsslBigInt { value: old_s }, OsslBigInt { value: old_t })
     }
 
+    /// The number of bits needed to represent `self`
+    pub fn bits(&self) -> usize {
+        self.value.num_bits() as usize
+    }
+
     // pub fn lehmer_gcd(&self, rhs: &Self) -> (Self, Self) {
     //     let zero = BigNum::new().unwrap();
     //
