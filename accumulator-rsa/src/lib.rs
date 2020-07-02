@@ -19,16 +19,16 @@ pub(crate) const MIN_BYTES: usize = FACTOR_SIZE * 6 + 4;
 pub(crate) const MEMBER_SIZE: usize = 32;
 pub(crate) const MEMBER_SIZE_BITS: usize = 256;
 
-/// Provides an accumulator secret factors
-pub mod key;
-/// Provides methods for hashing to prime
-pub mod hash;
 /// Provides methods for creating and updating accumulators
 pub mod accumulator;
-/// Provides witness methods
-pub mod witness;
+/// Provides methods for hashing to prime
+pub mod hash;
+/// Provides an accumulator secret factors
+pub mod key;
 /// Proofs of set membership
 pub mod memproof;
+/// Provides witness methods
+pub mod witness;
 
 use common::bigint::BigInteger;
 
@@ -36,7 +36,10 @@ use common::bigint::BigInteger;
 pub(crate) fn b2fa(b: &BigInteger, expected_size: usize) -> Vec<u8> {
     let mut t = vec![0u8; expected_size];
     let bt = b.to_bytes();
-    assert!(expected_size >= bt.len(), format!("expected = {}, found = {}", expected_size, bt.len()));
+    assert!(
+        expected_size >= bt.len(),
+        format!("expected = {}, found = {}", expected_size, bt.len())
+    );
     t[(expected_size - bt.len())..].clone_from_slice(bt.as_slice());
     t
 }

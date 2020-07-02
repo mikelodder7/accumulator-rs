@@ -35,8 +35,8 @@ pub(crate) fn hash_to_prime<B: AsRef<[u8]>>(input: B) -> BigInteger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::prelude::*;
     use gmp::mpz::{Mpz, ProbabPrimeResult};
+    use rand::prelude::*;
 
     #[test]
     fn test_hash() {

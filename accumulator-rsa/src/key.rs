@@ -1,14 +1,11 @@
-use crate::{FACTOR_SIZE, b2fa};
+use crate::{b2fa, FACTOR_SIZE};
 use common::{
-    error::{AccumulatorError, AccumulatorErrorKind},
     bigint::BigInteger,
+    error::{AccumulatorError, AccumulatorErrorKind},
 };
 #[cfg(not(test))]
 use rayon::prelude::*;
-use std::{
-    convert::TryFrom,
-    fmt::Formatter,
-};
+use std::convert::TryFrom;
 use zeroize::Zeroize;
 
 /// Represents the safe primes used in the modulus for the accumulator
@@ -23,7 +20,9 @@ pub struct AccumulatorSecretKey {
 impl AccumulatorSecretKey {
     /// Create a new Accumulator secret key by generating two
     /// 1024-bit safe primes
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Compute p * q
     pub fn modulus(&self) -> BigInteger {
@@ -54,7 +53,7 @@ impl Clone for AccumulatorSecretKey {
     fn clone(&self) -> Self {
         Self {
             p: self.p.clone(),
-            q: self.q.clone()
+            q: self.q.clone(),
         }
     }
 }
@@ -64,7 +63,14 @@ impl TryFrom<&[u8]> for AccumulatorSecretKey {
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         if data.len() != 2 * FACTOR_SIZE {
-            return Err(AccumulatorError::from_msg (AccumulatorErrorKind::InvalidType, format!("Invalid bytes, expected {}, got {}", 2 * FACTOR_SIZE, data.len())));
+            return Err(AccumulatorError::from_msg(
+                AccumulatorErrorKind::InvalidType,
+                format!(
+                    "Invalid bytes, expected {}, got {}",
+                    2 * FACTOR_SIZE,
+                    data.len()
+                ),
+            ));
         }
         let p = BigInteger::try_from(&data[..FACTOR_SIZE])?;
         let q = BigInteger::try_from(&data[FACTOR_SIZE..])?;
@@ -98,9 +104,11 @@ serdes_impl!(AccumulatorSecretKey);
 #[cfg(not(test))]
 fn gen_primes() -> (BigInteger, BigInteger) {
     use crate::MIN_SIZE_PRIME;
-    let mut p: Vec<BigInteger> = (0..2).collect::<Vec<usize>>().par_iter().map(|_| {
-        BigInteger::generate_safe_prime(MIN_SIZE_PRIME)
-    }).collect();
+    let mut p: Vec<BigInteger> = (0..2)
+        .collect::<Vec<usize>>()
+        .par_iter()
+        .map(|_| BigInteger::generate_safe_prime(MIN_SIZE_PRIME))
+        .collect();
     let p1 = p.remove(0);
     let p2 = p.remove(0);
     (p1, p2)

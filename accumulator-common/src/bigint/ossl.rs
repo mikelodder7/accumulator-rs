@@ -1,12 +1,13 @@
+use super::GcdResult;
 use crate::error::AccumulatorError;
 use openssl::bn::*;
 use std::{
     ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Div, DivAssign, Rem, RemAssign},
+    cmp::Ordering,
     convert::TryFrom,
     str::FromStr
 };
 use zeroize::Zeroize;
-use failure::_core::cmp::Ordering;
 
 #[inline]
 fn clone_bignum(b: &BigNum) -> BigNum {
@@ -258,17 +259,29 @@ impl OsslBigInt {
     /// Eventually replace with lehmer's GCD, see
     /// Based on https://github.com/golang/go/blob/master/src/math/big/int.go#L612
     /// and https://github.com/dignifiedquire/num-bigint/blob/master/src/algorithms/gcd.rs#L239
-    pub fn bezouts_coefficients(&self, rhs: &Self) -> (Self, Self) {
+    pub fn bezouts_coefficients(&self, rhs: &Self) -> GcdResult {
         let zero = BigNum::new().unwrap();
 
         if self.value == zero && rhs.value == zero {
-            return (OsslBigInt { value: zero }, OsslBigInt { value: BigNum::new().unwrap() })
+            return GcdResult {
+                value: Self::default(),
+                a: Self::default(),
+                b: Self::default()
+            };
         }
         if self.value == zero {
-            return (OsslBigInt{ value: zero }, OsslBigInt { value: BigNum::from_u32(1).unwrap() })
+            return GcdResult {
+                value: Self::default(),
+                a: Self::default(),
+                b: Self::from(1u32)
+            };
         }
         if rhs.value == zero {
-            return (OsslBigInt{ value: BigNum::from_u32(1).unwrap() }, OsslBigInt { value: zero })
+            return GcdResult {
+                value: Self::default(),
+                a: Self::from(1u32),
+                b: Self::default()
+            };
         }
 
         let mut s = BigNum::new().unwrap();
@@ -307,7 +320,11 @@ impl OsslBigInt {
             core::mem::swap(&mut t, &mut n_t);
         }
 
-        return (OsslBigInt { value: old_s }, OsslBigInt { value: old_t })
+        GcdResult {
+            value: Self { value: old_r },
+            a: Self { value: old_s },
+            b: Self { value: old_t }
+        }
     }
 
     /// The number of bits needed to represent `self`
@@ -853,9 +870,9 @@ mod tests {
     fn test_bezouts_coefficients() {
         let a = OsslBigInt::from(31);
         let b = OsslBigInt::from(37);
-        let (x, y) = a.bezouts_coefficients(&b);
-        assert_eq!(x, OsslBigInt::from(6));
-        assert_eq!(y, OsslBigInt::from(-5));
+        let gcdres = a.bezouts_coefficients(&b);
+        assert_eq!(gcdres.a, OsslBigInt::from(6));
+        assert_eq!(gcdres.b, OsslBigInt::from(-5));
 
         // let (x1, y1) = a.lehmer_gcd(&b);
         // assert_eq!(x, x1);
@@ -863,26 +880,26 @@ mod tests {
 
         let a = OsslBigInt::from(8890919903463260501u64);
         let b = OsslBigInt::from(4108249713441620807u64);
-        let (x, y) = a.bezouts_coefficients(&b);
-        assert_eq!(&a * &x + &b * &y, OsslBigInt::from(1));
+        let gcdres = a.bezouts_coefficients(&b);
+        assert_eq!(&a * &gcdres.a + &b * &gcdres.b, OsslBigInt::from(1));
         // let (x1, y1) = a.lehmer_gcd(&b);
         // assert_eq!(x, x1);
         // assert_eq!(y, y1);
 
         let a = OsslBigInt::from("59066688664129022771864664899854388241934199");
         let b = OsslBigInt::from("37835724723609910915097429455428534256391567");
-        let (x, y) = a.bezouts_coefficients(&b);
-        assert_eq!(a * x + b * y, OsslBigInt::from(1));
+        let gcdres = a.bezouts_coefficients(&b);
+        assert_eq!(&a * &gcdres.a + &b * &gcdres.b, OsslBigInt::from(1));
 
         let a = OsslBigInt::from("63156515965705215668198135979702445890399855958342988288023717346298762458519");
         let b = OsslBigInt::from("88222503113609549383110571557868679926843894352175049520163164425194315455087");
-        let (x, y) = a.bezouts_coefficients(&b);
-        assert_eq!(a * x + b * y, OsslBigInt::from(1));
+        let gcdres = a.bezouts_coefficients(&b);
+        assert_eq!(&a * &gcdres.a + &b * &gcdres.b, OsslBigInt::from(1));
 
         let a = OsslBigInt::from("110422610948286709138485492482935635638264750009600299725452243283436733720392246059063491803632880734581205803055181800903760038310736506503680688628574356141048683956939580954585993563187988670440898390629796365318330488774232968384366277613928493883799406085796171388069092509126205421481829768092907910223");
         let b = OsslBigInt::from("144752716042106469974249706528521998938152502128562582443810766701147824209476422616749732877677665050640762537307121309778249083244222621926550031718490338251582230555954033385425427868823341471827035756696835501952242590639149948825184284419723029518177154885138979259190707216104403774189295861447177485051");
-        let (x, y) = a.bezouts_coefficients(&b);
-        assert_eq!(a * x + b * y, OsslBigInt::from(1));
+        let gcdres = a.bezouts_coefficients(&b);
+        assert_eq!(&a * &gcdres.a + &b * &gcdres.b, OsslBigInt::from(1));
     }
 
     #[test]

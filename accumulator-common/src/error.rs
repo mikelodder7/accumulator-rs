@@ -14,7 +14,10 @@ pub enum AccumulatorErrorKind {
     /// When trying to create a witness to a value not in the accumulator
     /// or when trying to remove an invalid value from the accumulator
     #[fail(display = "Member is not currently in the accumulator")]
-    InvalidMemberSupplied
+    InvalidMemberSupplied,
+    /// An incorrect number of bytes was supplied when trying to deserialize from bytes
+    #[fail(display = "Invalid bytes supplied when deserializing")]
+    SerializationError,
 }
 
 /// Error wrapper to add context and backtrace

@@ -21,7 +21,7 @@ macro_rules! serdes_impl {
                 impl<'a> serde::de::Visitor<'a> for DeserializeVisitor {
                     type Value = $name;
 
-                    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                         formatter.write_str("expected byte array")
                     }
 
