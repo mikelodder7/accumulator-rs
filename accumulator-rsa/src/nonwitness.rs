@@ -1,14 +1,5 @@
-use crate::{
-    accumulator::Accumulator,
-    hash_to_prime,
-    b2fa,
-    FACTOR_SIZE,
-    MEMBER_SIZE
-};
-use common::{
-    bigint::BigInteger,
-    error::*,
-};
+use crate::{accumulator::Accumulator, b2fa, hash_to_prime, FACTOR_SIZE, MEMBER_SIZE};
+use common::{bigint::BigInteger, error::*};
 use rayon::prelude::*;
 
 /// A witness that can be used for non-membership proofs
@@ -34,10 +25,7 @@ impl NonMembershipWitness {
                 "value is in the accumulator",
             ));
         }
-        let s: BigInteger = accumulator
-            .members
-            .par_iter()
-            .product();
+        let s: BigInteger = accumulator.members.par_iter().product();
         let gcd_res = s.bezouts_coefficients(x);
 
         Ok(Self {
@@ -112,7 +100,12 @@ mod tests {
         let witness = NonMembershipWitness::new(&acc, &member).unwrap();
         let x = hash_to_prime(&member);
         assert_eq!(witness.x, x);
-        assert_eq!(witness.a, BigInteger::from("15795998627841229596746791978738735879500608346691682615375569238309284887513"));
+        assert_eq!(
+            witness.a,
+            BigInteger::from(
+                "15795998627841229596746791978738735879500608346691682615375569238309284887513"
+            )
+        );
         assert_eq!(witness.b, BigInteger::from("6388326997732524861157518981293465348126497224448224262899188532204238407926532196045325248196972846806947720340521784938389014005663302337262427886146089488840725520453702779222204754092861965365585545163578729266631568761125702734412168237307421720677183700888938471137124110944346634396607732586727642165029849092492022242344835576192376600778666980586195770904801446657862109479980888723780837336205065718097700798928910065564613160557112440577753800406030377186114098712828892503060592905025686768606679731772102776289644694522991421550919174447634643520414913404966680048474966211610900737010091996857902429565"));
 
         assert_eq!(witness.to_bytes().len(), 4 * FACTOR_SIZE + MEMBER_SIZE);

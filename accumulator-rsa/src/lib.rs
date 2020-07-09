@@ -11,7 +11,7 @@ unused_qualifications,
 #[macro_use]
 extern crate arrayref;
 #[macro_use]
-extern crate common;
+pub extern crate common;
 
 pub(crate) const MIN_SIZE_PRIME: usize = 1024;
 pub(crate) const FACTOR_SIZE: usize = MIN_SIZE_PRIME / 8;
@@ -34,16 +34,29 @@ pub mod nonwitness;
 /// Provides witness methods
 pub mod witness;
 
-use crate::{
-    accumulator::Accumulator,
-    hash::hash_to_prime
-};
-use blake2::{Blake2b, digest::Digest};
+use crate::{accumulator::Accumulator, hash::hash_to_prime};
+use blake2::{digest::Digest, Blake2b};
 use common::{
     bigint::BigInteger,
-    error::{AccumulatorError, AccumulatorErrorKind}
+    error::{AccumulatorError, AccumulatorErrorKind},
 };
 use std::convert::TryFrom;
+
+/// Convenience module to include when using
+pub mod prelude {
+    pub use crate::{
+        accumulator::Accumulator,
+        common::{
+            bigint::{BigInteger, GcdResult},
+            error::*,
+        },
+        key::AccumulatorSecretKey,
+        memproof::MembershipProof,
+        nonmemproof::NonMembershipProof,
+        nonwitness::NonMembershipWitness,
+        witness::MembershipWitness,
+    };
+}
 
 /// BigUint to fixed array
 pub(crate) fn b2fa(b: &BigInteger, expected_size: usize) -> Vec<u8> {
@@ -59,8 +72,9 @@ pub(crate) fn b2fa(b: &BigInteger, expected_size: usize) -> Vec<u8> {
 
 /// Represents a Proof of Knowledge of Exponents 2 from section 3.2 in
 /// <https://eprint.iacr.org/2018/1188.pdf>
+/// Not meant to be used directly
 #[derive(Debug, Eq, PartialEq, Clone)]
-pub struct Poke2Proof {
+pub(crate) struct Poke2Proof {
     u: BigInteger,
     z: BigInteger,
     q: BigInteger,
@@ -72,7 +86,13 @@ impl Poke2Proof {
     pub const SIZE_BYTES: usize = 6 * FACTOR_SIZE + MEMBER_SIZE;
 
     /// Create a new proof of knowledge of exponents
-    pub fn new<B: AsRef<[u8]>>(x_in: &BigInteger, u: &BigInteger, a: &BigInteger, accumulator: &Accumulator, nonce: B) -> Self {
+    pub fn new<B: AsRef<[u8]>>(
+        x_in: &BigInteger,
+        u: &BigInteger,
+        a: &BigInteger,
+        accumulator: &Accumulator,
+        nonce: B,
+    ) -> Self {
         let f = common::Field::new(&accumulator.modulus);
         let z = f.exp(&accumulator.generator, x_in);
 
@@ -100,11 +120,21 @@ impl Poke2Proof {
         let q2 = f.exp(&accumulator.generator, &(&x * &whole));
         // Q = u ^ q * g ^ {q * alpha}
         let q = f.mul(&q1, &q2);
-        Self { u: u.clone(), q, r, z }
+        Self {
+            u: u.clone(),
+            q,
+            r,
+            z,
+        }
     }
 
     /// Use another value as the accumulator value to verify
-    pub fn verify_with<B: AsRef<[u8]>>(&self, value: &BigInteger, accumulator: &Accumulator, nonce: B) -> bool {
+    pub fn verify_with<B: AsRef<[u8]>>(
+        &self,
+        value: &BigInteger,
+        accumulator: &Accumulator,
+        nonce: B,
+    ) -> bool {
         let mut acc = accumulator.clone();
         acc.value = value.clone();
         self.verify(&acc, nonce)

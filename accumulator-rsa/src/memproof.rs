@@ -12,7 +12,13 @@ impl MembershipProof {
         accumulator: &Accumulator,
         nonce: B,
     ) -> Self {
-        let proof = Poke2Proof::new(&witness.x, &witness.u, &accumulator.value, accumulator, nonce);
+        let proof = Poke2Proof::new(
+            &witness.x,
+            &witness.u,
+            &accumulator.value,
+            accumulator,
+            nonce,
+        );
         Self(proof)
     }
 
@@ -41,10 +47,7 @@ serdes_impl!(MembershipProof);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        key::AccumulatorSecretKey,
-        MEMBER_SIZE_BITS,
-    };
+    use crate::{key::AccumulatorSecretKey, MEMBER_SIZE_BITS};
     use common::bigint::BigInteger;
     use rayon::prelude::*;
 

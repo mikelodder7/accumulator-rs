@@ -1,4 +1,7 @@
-use crate::{accumulator::Accumulator, hash::hash_to_prime, key::AccumulatorSecretKey, b2fa, FACTOR_SIZE, MEMBER_SIZE};
+use crate::{
+    accumulator::Accumulator, b2fa, hash::hash_to_prime, key::AccumulatorSecretKey, FACTOR_SIZE,
+    MEMBER_SIZE,
+};
 use common::{
     bigint::BigInteger,
     error::{AccumulatorError, AccumulatorErrorKind},
@@ -79,7 +82,11 @@ impl MembershipWitness {
     /// Create a new witness to match `new_acc` from `old_acc` using this witness
     /// by applying the methods found in 4.2 in
     /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
-    pub fn update(&self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<Self, AccumulatorError> {
+    pub fn update(
+        &self,
+        old_acc: &Accumulator,
+        new_acc: &Accumulator,
+    ) -> Result<Self, AccumulatorError> {
         let mut w = self.clone();
         w.update_assign(old_acc, new_acc)?;
         Ok(w)
@@ -88,7 +95,11 @@ impl MembershipWitness {
     /// Update this witness to match `new_acc` from `old_acc`
     /// by applying the methods found in 4.2 in
     /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
-    pub fn update_assign(&mut self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<(), AccumulatorError> {
+    pub fn update_assign(
+        &mut self,
+        old_acc: &Accumulator,
+        new_acc: &Accumulator,
+    ) -> Result<(), AccumulatorError> {
         if !new_acc.members.contains(&self.x) {
             return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
         }
@@ -100,7 +111,7 @@ impl MembershipWitness {
         let deletions: Vec<&BigInteger> = old_acc.members.difference(&new_acc.members).collect();
 
         if additions.is_empty() && deletions.is_empty() {
-            return Ok(())
+            return Ok(());
         }
 
         let f = Field::new(&new_acc.modulus);
@@ -181,7 +192,7 @@ mod tests {
             11u64.to_be_bytes(),
             13u64.to_be_bytes(),
             17u64.to_be_bytes(),
-            19u64.to_be_bytes()
+            19u64.to_be_bytes(),
         ];
         let acc = Accumulator::with_members(&key, &members);
         let witness = MembershipWitness::new(&acc, &members[0]).unwrap();
