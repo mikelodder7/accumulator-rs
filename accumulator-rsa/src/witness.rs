@@ -36,7 +36,7 @@ impl MembershipWitness {
             .filter(|b| b != x)
             .product();
         let u = (&accumulator.generator).mod_exp(&exp, &accumulator.modulus);
-        Ok(MembershipWitness { u, x: x.clone() })
+        Ok(Self { u, x: x.clone() })
     }
 
     /// Return a new membership witness. This is more efficient that `new` due to
@@ -73,7 +73,7 @@ impl MembershipWitness {
             .filter(|b| b != x)
             .reduce(|| BigInteger::from(1u32), |a, b| f.mul(&a, &b));
         let u = (&accumulator.generator).mod_exp(&exp, &accumulator.modulus);
-        MembershipWitness { u, x: x.clone() }
+        Self { u, x: x.clone() }
     }
 
     /// Create a new witness to match `new_acc` from `old_acc` using this witness
@@ -98,18 +98,29 @@ impl MembershipWitness {
 
         let additions: Vec<&BigInteger> = new_acc.members.difference(&old_acc.members).collect();
         let deletions: Vec<&BigInteger> = old_acc.members.difference(&new_acc.members).collect();
-        let x: BigInteger = new_acc.members.par_iter().product();
-        let x_hat = deletions.into_par_iter().product();
-        let x_a = additions.into_par_iter().product();
 
-        let gcd_res = x.bezouts_coefficients(&x_hat);
-        assert_eq!(gcd_res.value, BigInteger::from(1u32));
+        if additions.is_empty() && deletions.is_empty() {
+            return Ok(())
+        }
+
         let f = Field::new(&new_acc.modulus);
 
-        self.u = f.mul(
-            &f.exp(&f.exp(&self.u, &x_a), &gcd_res.b),
-            &f.exp(&new_acc.value, &gcd_res.a),
-        );
+        if !additions.is_empty() {
+            let x_a = additions.into_par_iter().product();
+            self.u = f.exp(&self.u, &x_a);
+        }
+
+        if !deletions.is_empty() {
+            let x_hat = deletions.into_par_iter().product();
+            let gcd_res = self.x.bezouts_coefficients(&x_hat);
+            assert_eq!(gcd_res.value, BigInteger::from(1u32));
+
+            self.u = f.mul(
+                &f.exp(&self.u, &gcd_res.b),
+                &f.exp(&new_acc.value, &gcd_res.a),
+            );
+        }
+
         Ok(())
     }
 
@@ -159,5 +170,46 @@ mod tests {
 
         assert_eq!(acc.value, witness.u);
         assert_eq!(witness.to_bytes().len(), 2 * FACTOR_SIZE + MEMBER_SIZE);
+    }
+
+    #[test]
+    fn updates() {
+        let key = AccumulatorSecretKey::default();
+        let members: Vec<[u8; 8]> = vec![
+            3u64.to_be_bytes(),
+            7u64.to_be_bytes(),
+            11u64.to_be_bytes(),
+            13u64.to_be_bytes(),
+            17u64.to_be_bytes(),
+            19u64.to_be_bytes()
+        ];
+        let acc = Accumulator::with_members(&key, &members);
+        let witness = MembershipWitness::new(&acc, &members[0]).unwrap();
+
+        let acc_prime = &acc + 23u64;
+
+        let res = witness.update(&acc, &acc_prime);
+        assert!(res.is_ok());
+        let new_w = res.unwrap();
+        let expected_witness = MembershipWitness::new(&acc_prime, &members[0]).unwrap();
+        assert_eq!(expected_witness.u, new_w.u);
+
+        let mut acc = acc_prime.remove_u64(&key, 17u64).unwrap();
+        let res = new_w.update(&acc_prime, &acc);
+        assert!(res.is_ok());
+        let new_w = res.unwrap();
+        let expected_witness = MembershipWitness::new(&acc, &members[0]).unwrap();
+        assert_eq!(expected_witness.u, new_w.u);
+
+        let old_acc = acc.clone();
+        acc.remove_u64_assign(&key, 7u64).unwrap();
+        acc.remove_u64_assign(&key, 11u64).unwrap();
+        acc.remove_u64_assign(&key, 13u64).unwrap();
+        acc += 29u64;
+        let res = new_w.update(&old_acc, &acc);
+        assert!(res.is_ok());
+        let new_w = res.unwrap();
+        let expected_witness = MembershipWitness::new(&acc, &members[0]).unwrap();
+        assert_eq!(expected_witness.u, new_w.u);
     }
 }

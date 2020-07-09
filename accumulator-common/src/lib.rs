@@ -44,8 +44,11 @@ impl Field {
         base.mod_exp(exp, &self.modulus)
     }
 
-    /// (a * b) % r
+    /// (a * b) mod r
     pub fn mul(&self, a: &BigInteger, b: &BigInteger) -> BigInteger {
         a.mod_mul(&b, &self.modulus)
     }
+
+    /// a^-1 mod r
+    pub fn inv(&self, a: &BigInteger) -> BigInteger { a.mod_inverse(&self.modulus) }
 }

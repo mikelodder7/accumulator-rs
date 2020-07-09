@@ -144,6 +144,13 @@ impl OsslBigInt {
     /// Compute modular exponentiation and return the result
     /// result = self ^ rhs mod order
     pub fn mod_exp(&self, exponent: &Self, modulus: &Self) -> Self {
+        let one = BigNum::from_u32(1u32).unwrap();
+        if exponent.value == BigNum::new().unwrap() {
+            return Self { value: one };
+        }
+        if exponent.value == one {
+            return self.clone();
+        }
         let mut value = BigNum::new().unwrap();
         let mut ctx = BigNumContext::new().unwrap();
         if exponent.value.is_negative() {
@@ -161,6 +168,9 @@ impl OsslBigInt {
     /// Compute modular exponentiation and assign it to self
     /// self = self ^ exponent mod order
     pub fn mod_exp_assign(&mut self, exponent: &Self, modulus: &Self) {
+        if exponent.value == BigNum::from_u32(1u32).unwrap() {
+            return;
+        }
         let value = clone_bignum(&self.value);
         let mut ctx = BigNumContext::new().unwrap();
         if exponent.value.is_negative() {
