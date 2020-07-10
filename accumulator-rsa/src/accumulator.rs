@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn add_error_test() {
-        let biguint = BigInteger::from("345_617_283_975_612_837_561_827_365");
+        let biguint = BigInteger::from("345617283975612837561827365");
         let key = AccumulatorSecretKey::default();
         let mut acc = Accumulator::new(&key);
         acc += &biguint;
@@ -492,7 +492,7 @@ mod tests {
 
     add_type_test!(
         add_bignum_test,
-        BigInteger::from("345_617_283_975_612_837_561_827_365")
+        BigInteger::from("345617283975612837561827365")
     );
     add_type_test!(
         add_string_test,

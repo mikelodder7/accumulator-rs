@@ -1,6 +1,4 @@
 use failure::{Backtrace, Context, Fail};
-#[cfg(feature = "openssl")]
-use openssl::error::ErrorStack;
 
 /// The error types
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Fail)]
@@ -83,8 +81,22 @@ impl From<AccumulatorErrorKind> for AccumulatorError {
 }
 
 #[cfg(feature = "openssl")]
-impl From<ErrorStack> for AccumulatorError {
-    fn from(err: ErrorStack) -> Self {
+impl From<openssl::error::ErrorStack> for AccumulatorError {
+    fn from(err: openssl::error::ErrorStack) -> Self {
         AccumulatorError::from_msg(AccumulatorErrorKind::InvalidType, err.errors().iter().map(|e| e.reason().unwrap_or("")).collect::<Vec<&str>>().join(","))
+    }
+}
+
+#[cfg(feature = "rust-gmp")]
+impl From<gmp::mpz::ParseMpzError> for AccumulatorError {
+    fn from(err: gmp::mpz::ParseMpzError) -> Self {
+        AccumulatorError::from_msg(AccumulatorErrorKind::InvalidType, format!("{:?}", err))
+    }
+}
+
+#[cfg(feature = "bi-rust")]
+impl From<num_bigint::ParseBigIntError> for AccumulatorError {
+    fn from(err: num_bigint::ParseBigIntError) -> Self {
+        AccumulatorError::from_msg(AccumulatorErrorKind::InvalidType, format!("{:?}", err))
     }
 }

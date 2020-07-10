@@ -167,7 +167,7 @@ mod tests {
     fn witnesses() {
         let key = AccumulatorSecretKey::default();
         let members: Vec<[u8; 8]> = vec![
-            3u64.to_be_bytes(),
+            23u64.to_be_bytes(),
             7u64.to_be_bytes(),
             11u64.to_be_bytes(),
             13u64.to_be_bytes(),
@@ -187,7 +187,7 @@ mod tests {
     fn updates() {
         let key = AccumulatorSecretKey::default();
         let members: Vec<[u8; 8]> = vec![
-            3u64.to_be_bytes(),
+            23u64.to_be_bytes(),
             7u64.to_be_bytes(),
             11u64.to_be_bytes(),
             13u64.to_be_bytes(),
@@ -197,7 +197,7 @@ mod tests {
         let acc = Accumulator::with_members(&key, &members);
         let witness = MembershipWitness::new(&acc, &members[0]).unwrap();
 
-        let acc_prime = &acc + 23u64;
+        let acc_prime = &acc + 29u64;
 
         let res = witness.update(&acc, &acc_prime);
         assert!(res.is_ok());
@@ -205,7 +205,7 @@ mod tests {
         let expected_witness = MembershipWitness::new(&acc_prime, &members[0]).unwrap();
         assert_eq!(expected_witness.u, new_w.u);
 
-        let mut acc = acc_prime.remove_u64(&key, 17u64).unwrap();
+        let mut acc = acc_prime.remove_u64(&key, 19u64).unwrap();
         let res = new_w.update(&acc_prime, &acc);
         assert!(res.is_ok());
         let new_w = res.unwrap();
@@ -216,7 +216,7 @@ mod tests {
         acc.remove_u64_assign(&key, 7u64).unwrap();
         acc.remove_u64_assign(&key, 11u64).unwrap();
         acc.remove_u64_assign(&key, 13u64).unwrap();
-        acc += 29u64;
+        acc += 31u64;
         let res = new_w.update(&old_acc, &acc);
         assert!(res.is_ok());
         let new_w = res.unwrap();

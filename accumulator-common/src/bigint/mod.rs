@@ -5,7 +5,7 @@ pub mod ossl;
 #[cfg(feature = "rust-gmp")]
 pub mod mpz;
 /// Use Big Integer implementation backed by rust's num-bigint
-#[cfg(feature = "bigint-rust")]
+#[cfg(feature = "bi-rust")]
 pub mod rust;
 
 /// The result from running extended euclid algorithm
@@ -21,4 +21,8 @@ pub struct GcdResult {
 
 #[cfg(feature = "openssl")]
 pub use ossl::OsslBigInt as BigInteger;
+#[cfg(feature = "rust-gmp")]
+pub use mpz::MpzBigInt as BigInteger;
+#[cfg(feature = "bi-rust")]
+pub use rust::RustBigInt as BigInteger;
 
