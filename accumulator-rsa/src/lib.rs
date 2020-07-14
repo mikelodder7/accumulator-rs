@@ -94,9 +94,11 @@ impl Poke2Proof {
         nonce: B,
     ) -> Self {
         let f = common::Field::new(&accumulator.modulus);
-        let z = f.exp(&accumulator.generator, x_in);
+        let nonce = nonce.as_ref();
+        let g = f.exp(&accumulator.generator, &BigInteger::from(nonce.to_vec()));
+        let z = f.exp(&g, x_in);
 
-        let mut data = accumulator.generator.to_bytes();
+        let mut data = g.to_bytes();
         data.append(&mut accumulator.modulus.to_bytes());
         data.append(&mut a.to_bytes());
         data.append(&mut u.to_bytes());
@@ -117,7 +119,7 @@ impl Poke2Proof {
         // u ^ q
         let q1 = f.exp(&u, &whole);
         // g ^ {q * alpha}
-        let q2 = f.exp(&accumulator.generator, &(&x * &whole));
+        let q2 = f.exp(&g, &(&x * &whole));
         // Q = u ^ q * g ^ {q * alpha}
         let q = f.mul(&q1, &q2);
         Self {
@@ -142,7 +144,10 @@ impl Poke2Proof {
 
     /// Verify a proof of knowledge of exponents
     pub fn verify<B: AsRef<[u8]>>(&self, accumulator: &Accumulator, nonce: B) -> bool {
-        let mut data = accumulator.generator.to_bytes();
+        let nonce = nonce.as_ref();
+        let f = common::Field::new(&accumulator.modulus);
+        let g = f.exp(&accumulator.generator, &BigInteger::from(nonce.to_vec()));
+        let mut data = g.to_bytes();
         data.append(&mut accumulator.modulus.to_bytes());
         data.append(&mut accumulator.value.to_bytes());
         data.append(&mut self.u.to_bytes());
@@ -157,7 +162,6 @@ impl Poke2Proof {
         // x = H(g || m || v || u || z || n1 || l)
         let x = BigInteger::try_from(Blake2b::digest(data.as_slice()).as_slice()).unwrap();
 
-        let f = common::Field::new(&accumulator.modulus);
 
         // Q ^ l
         let p1 = f.exp(&self.q, &l);
@@ -165,7 +169,7 @@ impl Poke2Proof {
         let p2 = f.exp(&self.u, &self.r);
         // x * r
         // g ^ {x * r}
-        let p3 = f.exp(&accumulator.generator, &(&x * &self.r));
+        let p3 = f.exp(&g, &(&x * &self.r));
 
         // Q^l * u^r * g^{x * r}
         let left = f.mul(&p1, &f.mul(&p2, &p3));
