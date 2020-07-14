@@ -1,6 +1,4 @@
-use crate::{
-    accumulator::Accumulator, b2fa, nonwitness::NonMembershipWitness, Poke2Proof, FACTOR_SIZE,
-};
+use crate::{accumulator::Accumulator, b2fa, nonwitness::NonMembershipWitness, Poke2Proof, FACTOR_SIZE, MEMBER_SIZE};
 use common::{bigint::BigInteger, error::*, Field};
 use std::convert::TryFrom;
 
@@ -8,12 +6,14 @@ use std::convert::TryFrom;
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct NonMembershipProof {
     v: BigInteger,
-    proof_v: Poke2Proof,
+    r: BigInteger,
+    q: BigInteger,
+    z: BigInteger,
     proof_g: Poke2Proof,
 }
 
 impl NonMembershipProof {
-    /// Create a new PoKE2 proof
+    /// Create 2 new PoKE2 proofs
     pub fn new<B: AsRef<[u8]>>(
         witness: &NonMembershipWitness,
         accumulator: &Accumulator,
@@ -28,7 +28,9 @@ impl NonMembershipProof {
         let proof_g = Poke2Proof::new(&witness.x, &witness.b, &gv_inv, &accumulator, nonce);
         Self {
             v,
-            proof_v,
+            r: proof_v.r.clone(),
+            q: proof_v.q.clone(),
+            z: proof_v.z.clone(),
             proof_g,
         }
     }
@@ -43,23 +45,21 @@ impl NonMembershipProof {
         // the accumulator value has changed since the proof was created
         let proof_v = Poke2Proof {
             u: accumulator.value.clone(),
-            r: self.proof_v.r.clone(),
-            q: self.proof_v.q.clone(),
-            z: self.proof_v.z.clone(),
+            r: self.r.clone(),
+            q: self.q.clone(),
+            z: self.z.clone(),
         };
         let v_res = proof_v.verify_with(&self.v, &accumulator, nonce);
         let g_res = self.proof_g.verify_with(&gv_inv, &accumulator, nonce);
         g_res && v_res
-        // self.proof_g.verify(&accumulator, nonce) &&
-        //     self.proof_v.verify(&accumulator, nonce)
     }
 
     /// Serialize this to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut output = b2fa(&self.v, 2 * FACTOR_SIZE);
-        // TODO: proof_v.u is the same as the current accumulator, no need to store that
-        // possible optimization later?
-        output.append(&mut self.proof_v.to_bytes());
+        output.append(&mut b2fa(&self.z, 2 * FACTOR_SIZE));
+        output.append(&mut b2fa(&self.q, 2 * FACTOR_SIZE));
+        output.append(&mut b2fa(&self.r, MEMBER_SIZE));
         output.append(&mut self.proof_g.to_bytes());
         output
     }
@@ -72,14 +72,28 @@ impl TryFrom<&[u8]> for NonMembershipProof {
         if data.len() != Poke2Proof::SIZE_BYTES * 2 + 2 * FACTOR_SIZE {
             return Err(AccumulatorErrorKind::SerializationError.into());
         }
-        let offset = 2 * FACTOR_SIZE;
+        let mut offset = 2*FACTOR_SIZE;
         let v = BigInteger::try_from(&data[..offset])?;
-        let end = offset + Poke2Proof::SIZE_BYTES;
-        let proof_v = Poke2Proof::try_from(&data[offset..end])?;
+        let mut end = offset + 2*FACTOR_SIZE;
+        let z = BigInteger::try_from(&data[offset..end])?;
+
+        offset = end;
+        end = offset + 2*FACTOR_SIZE;
+
+        let q = BigInteger::try_from(&data[offset..end])?;
+
+        offset = end;
+        end = offset + MEMBER_SIZE;
+
+        let r = BigInteger::try_from(&data[offset..end])?;
+
+        // let proof_v = Poke2Proof::try_from(&data[offset..end])?;
         let proof_g = Poke2Proof::try_from(&data[end..])?;
         Ok(Self {
             v,
-            proof_v,
+            z,
+            q,
+            r,
             proof_g,
         })
     }
@@ -113,7 +127,7 @@ mod tests {
         assert!(!proof.verify(&acc, nonce));
         assert_eq!(
             proof.to_bytes().len(),
-            2 * Poke2Proof::SIZE_BYTES + 2 * FACTOR_SIZE
+            2 * Poke2Proof::SIZE_BYTES
         );
     }
 }
