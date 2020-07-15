@@ -32,7 +32,7 @@ pub mod nonmemproof;
 /// Provides non-membership witness methods
 pub mod nonwitness;
 /// Provides witness methods
-pub mod witness;
+pub mod memwitness;
 
 use crate::{accumulator::Accumulator, hash::hash_to_prime};
 use blake2::{digest::Digest, Blake2b};
@@ -52,9 +52,9 @@ pub mod prelude {
         },
         key::AccumulatorSecretKey,
         memproof::MembershipProof,
+        memwitness::MembershipWitness,
         nonmemproof::NonMembershipProof,
         nonwitness::NonMembershipWitness,
-        witness::MembershipWitness,
     };
 }
 

@@ -13,16 +13,21 @@ Coprime Roots which reduces the proof to be a single element.
 - [x] Accumulators
    - [x] Add new members
    - [x] Remove existing members
-- [x] Witness
+- [x] Membership Witness
    - [x] Create
    - [x] Update
    - [ ] Aggregation
-- [x] Membership Proof
+- [ ] Non-membership Witness
+    - [x] Create
+    - [ ] Update
+    - [ ] Aggregation
+- [ ] Membership Proof
    - [x] Generate
    - [x] Verify
+   - [ ] Aggregation
 - [ ] Non-Membership Proof
-   - [ ] Generate 
-   - [ ] Verify 
+   - [x] Generate 
+   - [x] Verify 
    - [ ] Aggregation
 - [ ] Vector Accumulator
    - [ ] Add new members

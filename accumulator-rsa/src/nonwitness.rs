@@ -1,5 +1,5 @@
 use crate::{accumulator::Accumulator, b2fa, hash_to_prime, FACTOR_SIZE, MEMBER_SIZE};
-use common::{bigint::BigInteger, error::*};
+use common::{bigint::BigInteger, Field, error::*};
 use rayon::prelude::*;
 
 /// A witness that can be used for non-membership proofs
@@ -30,48 +30,84 @@ impl NonMembershipWitness {
 
         Ok(Self {
             a: gcd_res.a,
-            b: (&accumulator.generator).mod_exp(&gcd_res.b, &accumulator.modulus),
+            b: (&accumulator.generator).mod_inverse(&accumulator.modulus).mod_exp(&gcd_res.b, &accumulator.modulus),
             x: x.clone(),
         })
     }
 
-    // /// Create a new witness to match `new_acc` from `old_acc` using this witness
-    // /// by applying the methods found in 4.2 in
-    // /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
-    // pub fn update(&self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<Self, AccumulatorError> {
-    //     let mut w = self.clone();
-    //     w.update_assign(old_acc, new_acc)?;
-    //     Ok(w)
-    // }
-    //
-    // /// Update this witness to match `new_acc` from `old_acc`
-    // /// by applying the methods found in 4.2 in
-    // /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
-    // pub fn update_assign(&mut self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<(), AccumulatorError> {
-    //     if !new_acc.members.contains(&self.x) {
-    //         return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
-    //     }
-    //     if !old_acc.members.contains(&self.x) {
-    //         return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
-    //     }
-    //
-    //     let additions: Vec<&BigInteger> = new_acc.members.difference(&old_acc.members).collect();
-    //     let deletions: Vec<&BigInteger> = old_acc.members.difference(&new_acc.members).collect();
-    //     let x: BigInteger = new_acc.members.par_iter().product();
-    //     let x_hat = deletions.into_par_iter().product();
-    //     let x_a = additions.into_par_iter().product();
-    //
-    //     let gcd_res = x.bezouts_coefficients(&x_hat);
-    //     assert_eq!(gcd_res.value, BigInteger::from(1u32));
-    //     let f = Field::new(&new_acc.modulus);
-    //
-    //     self.u = f.mul(
-    //         &f.exp(&f.exp(&self.u, &x_a), &gcd_res.b),
-    //         &f.exp(&new_acc.value, &gcd_res.a),
-    //     );
-    //     Ok(())
-    // }
-    //
+    /// Create a new witness to match `new_acc` from `old_acc` using this witness
+    /// by applying the methods found in 4.2 in
+    /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
+    pub fn update(&self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<Self, AccumulatorError> {
+        let mut w = self.clone();
+        w.update_assign(old_acc, new_acc)?;
+        Ok(w)
+    }
+
+    /// Update this witness to match `new_acc` from `old_acc`
+    /// by applying the methods found in 4.2 in
+    /// <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
+    pub fn update_assign(&mut self, old_acc: &Accumulator, new_acc: &Accumulator) -> Result<(), AccumulatorError> {
+        if new_acc.members.contains(&self.x) {
+            return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
+        }
+        if old_acc.members.contains(&self.x) {
+            return Err(AccumulatorErrorKind::InvalidMemberSupplied.into());
+        }
+
+        debug_assert_eq!(&old_acc.value.mod_exp(&self.a, &old_acc.modulus), &self.b.mod_exp(&self.x, &old_acc.modulus).mod_mul(&old_acc.generator, &old_acc.modulus));
+
+        let additions: Vec<&BigInteger> = new_acc.members.difference(&old_acc.members).collect();
+        let deletions: Vec<&BigInteger> = old_acc.members.difference(&new_acc.members).collect();
+
+        if additions.is_empty() && deletions.is_empty() {
+            return Ok(());
+        }
+
+        let f = Field::new(&new_acc.modulus);
+
+        // Section 4.2 in
+        // <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
+        if !additions.is_empty() {
+            let x_hat: BigInteger = additions.into_par_iter().product();
+            let gcd_result = x_hat.bezouts_coefficients(&self.x);
+
+            debug_assert_eq!(BigInteger::from(1), &x_hat * &gcd_result.a + &self.x * &gcd_result.b);
+
+            let a_hat = self.a.mod_mul(&gcd_result.a, &self.x);
+
+            debug_assert_eq!(&self.a % &self.x, a_hat.mod_mul(&x_hat, &self.x));
+
+            let r = &(&(&a_hat * &x_hat) - &self.a) / &self.x;
+
+            debug_assert_eq!(&BigInteger::from(0), &(&(&self.a + &(&r * &self.x)) % &x_hat));
+
+            let field = Field::new(&self.a);
+
+            debug_assert_eq!(field.mul(&a_hat, &x_hat), field.mul(&r, &self.x));
+
+            let b_hat = f.mul(&self.b, &f.exp(&old_acc.value, &r));
+
+            self.a = a_hat;
+            self.b = b_hat;
+            // c_hat^a_hat == b_hat^x g
+            debug_assert_eq!(f.exp(&new_acc.value, &self.a), f.mul(&new_acc.generator, &f.exp(&self.b, &self.x)));
+        }
+
+        if !deletions.is_empty() {
+            let x_hat = deletions.into_par_iter().product();
+            let r = &(&x_hat * &self.a) / &self.x;
+            self.a = (&self.a * &x_hat) - (&r * &self.x);
+            self.b = f.mul(&self.b, &f.exp(&f.inv(&new_acc.value), &r));
+            // Check if the assumption holds
+            //\widehat{c}^\widehat{a} == g B^{x}
+            debug_assert_eq!(f.exp(&new_acc.value, &self.a), f.mul(&new_acc.generator, &f.exp(&self.b, &self.x)));
+        }
+
+
+        Ok(())
+    }
+
     /// Serialize this to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut output = b2fa(&self.a, FACTOR_SIZE * 2);
@@ -85,6 +121,7 @@ impl NonMembershipWitness {
 mod tests {
     use super::*;
     use crate::key::AccumulatorSecretKey;
+    use crate::nonmemproof::NonMembershipProof;
 
     #[test]
     fn witnesses() {
@@ -109,5 +146,55 @@ mod tests {
         assert_eq!(witness.b, BigInteger::from("2149686201261569770065920679789454502455857208341665514002839783271584063678474978827138199408993069974440284641454415089852089623519183067095687250431168098092596138162142731219404546700662574637486023274005277590009346261551440860018534170202956664627062630576155823322479137602352833748169881169692028769928046673148660667626411783135810907646439667356639827542490401895582713578034261200405794892085855078078606350705587354769777624991839858346051910361458564955742400424538045949867061470495504997869577712663063340516143433024876978763009400110923728219469991551602311658692352088592887106676887360156790752153"));
 
         assert_eq!(witness.to_bytes().len(), 4 * FACTOR_SIZE + MEMBER_SIZE);
+    }
+
+    #[test]
+    fn updates() {
+        let key = AccumulatorSecretKey::default();
+        let members: Vec<[u8; 8]> = vec![
+            23u64.to_be_bytes(),
+            7u64.to_be_bytes(),
+            11u64.to_be_bytes(),
+            13u64.to_be_bytes(),
+            17u64.to_be_bytes(),
+            19u64.to_be_bytes(),
+        ];
+        let member = 37u64.to_be_bytes();
+        let mut acc = Accumulator::with_members(&key, &members);
+        let witness = NonMembershipWitness::new(&acc, &member).unwrap();
+
+        // Test add update
+        let mut acc_prime = &acc + 29u64;
+
+        let res = witness.update(&acc, &acc_prime);
+        assert!(res.is_ok());
+        let new_w = res.unwrap();
+
+        let expected_w = NonMembershipWitness::new(&acc_prime, &member).unwrap();
+
+        let expected_witness = NonMembershipWitness::new(&acc_prime, &member).unwrap();
+        assert_eq!(expected_witness.a, new_w.a);
+        assert_eq!(expected_witness.b, new_w.b);
+
+        // Test remove update
+        let mut new_acc = acc_prime.remove_u64(&key, 19u64).unwrap();
+        let res = new_w.update(&acc_prime, &new_acc);
+        assert!(res.is_ok());
+        let new_w = res.unwrap();
+        let expected_witness = NonMembershipWitness::new(&new_acc, &member).unwrap();
+        assert_eq!(expected_witness.a, new_w.a);
+        assert_eq!(expected_witness.b, new_w.b);
+
+        // let old_acc = new_acc.clone();
+        // new_acc.remove_u64_assign(&key, 7u64).unwrap();
+        // new_acc.remove_u64_assign(&key, 11u64).unwrap();
+        // new_acc.remove_u64_assign(&key, 13u64).unwrap();
+        // new_acc += 31u64;
+        // let res = new_w.update(&old_acc, &new_acc);
+        // assert!(res.is_ok());
+        // let new_w = res.unwrap();
+        // let expected_witness = NonMembershipWitness::new(&new_acc, &member).unwrap();
+        // assert_eq!(expected_witness.a, new_w.a);
+        // assert_eq!(expected_witness.b, new_w.b);
     }
 }
