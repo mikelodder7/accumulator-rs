@@ -69,6 +69,16 @@ impl NonMembershipWitness {
 
         let f = Field::new(&new_acc.modulus);
 
+        if !deletions.is_empty() {
+            let x_hat = deletions.into_par_iter().product();
+            let r = &(&x_hat * &self.a) / &self.x;
+            self.a = (&self.a * &x_hat) - (&r * &self.x);
+            self.b = f.mul(&self.b, &f.exp(&f.inv(&new_acc.value), &r));
+            // Check if the assumption holds
+            //\widehat{c}^\widehat{a} == g B^{x}
+            debug_assert_eq!(f.exp(&new_acc.value, &self.a), f.mul(&new_acc.generator, &f.exp(&self.b, &self.x)));
+        }
+
         // Section 4.2 in
         // <https://www.cs.purdue.edu/homes/ninghui/papers/accumulator_acns07.pdf>
         if !additions.is_empty() {
@@ -96,17 +106,6 @@ impl NonMembershipWitness {
             // c_hat^a_hat == b_hat^x g
             debug_assert_eq!(f.exp(&new_acc.value, &self.a), f.mul(&new_acc.generator, &f.exp(&self.b, &self.x)));
         }
-
-        if !deletions.is_empty() {
-            let x_hat = deletions.into_par_iter().product();
-            let r = &(&x_hat * &self.a) / &self.x;
-            self.a = (&self.a * &x_hat) - (&r * &self.x);
-            self.b = f.mul(&self.b, &f.exp(&f.inv(&new_acc.value), &r));
-            // Check if the assumption holds
-            //\widehat{c}^\widehat{a} == g B^{x}
-            debug_assert_eq!(f.exp(&new_acc.value, &self.a), f.mul(&new_acc.generator, &f.exp(&self.b, &self.x)));
-        }
-
 
         Ok(())
     }
@@ -186,9 +185,6 @@ mod tests {
         assert_eq!(expected_witness.b, new_w.b);
 
         let acc_prime = new_acc.clone();
-        // new_acc.remove_u64_assign(&key, 7u64).unwrap();
-        // new_acc.remove_u64_assign(&key, 11u64).unwrap();
-        // new_acc.remove_u64_assign(&key, 13u64).unwrap();
         new_acc += 31u64;
         new_acc += 41u64;
         new_acc += 47u64;
