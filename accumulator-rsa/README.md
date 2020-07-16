@@ -19,7 +19,7 @@ Coprime Roots which reduces the proof to be a single element.
    - [ ] Aggregation
 - [ ] Non-membership Witness
     - [x] Create
-    - [ ] Update
+    - [x] Update
     - [ ] Aggregation
 - [ ] Membership Proof
    - [x] Generate
