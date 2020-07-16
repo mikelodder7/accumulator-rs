@@ -19,13 +19,18 @@ impl NonMembershipProof {
         accumulator: &Accumulator,
         nonce: B,
     ) -> Self {
+        let nonce = nonce.as_ref();
         let f = Field::new(&accumulator.modulus);
         let v = f.exp(&accumulator.value, &witness.a);
-        let v_inv = f.inv(&v);
-        let gv_inv = f.mul(&accumulator.generator, &v_inv);
-        let nonce = nonce.as_ref();
-        let proof_v = Poke2Proof::new(&witness.a, &accumulator.value, &v, &accumulator, nonce);
-        let proof_g = Poke2Proof::new(&witness.x, &witness.b, &gv_inv, &accumulator, nonce);
+
+        let gv_inv = f.mul(&f.inv(&accumulator.generator), &v);
+        #[cfg(debug_assertions)]
+        Self::check_witness(witness, accumulator);
+
+        debug_assert_eq!(gv_inv, witness.b.mod_exp(&witness.x, &accumulator.modulus));
+
+        let proof_v = Poke2Proof::new(&witness.a, &accumulator.value, &v, &accumulator.modulus, nonce);
+        let proof_g = Poke2Proof::new(&witness.x, &witness.b, &gv_inv, &accumulator.modulus, nonce);
         Self {
             v,
             r: proof_v.r.clone(),
@@ -35,12 +40,21 @@ impl NonMembershipProof {
         }
     }
 
+    #[cfg(debug_assertions)]
+    fn check_witness(witness: &NonMembershipWitness, accumulator: &Accumulator) {
+        use rayon::prelude::*;
+
+        let x_hat: BigInteger = accumulator.members.par_iter().product();
+        let gcd_res = x_hat.bezouts_coefficients(&witness.x);
+        let expected_b = accumulator.generator.mod_inverse(&accumulator.modulus).mod_exp(&gcd_res.b, &accumulator.modulus);
+        assert_eq!(expected_b, witness.b);
+    }
+
     /// Verify a set membership proof
     pub fn verify<B: AsRef<[u8]>>(&self, accumulator: &Accumulator, nonce: B) -> bool {
         let nonce = nonce.as_ref();
         let f = Field::new(&accumulator.modulus);
-        let v_inv = f.inv(&self.v);
-        let gv_inv = f.mul(&accumulator.generator, &v_inv);
+        let gv_inv = f.mul(&f.inv(&accumulator.generator), &self.v);
         // Copy the latest value of the accumulator so the proof will fail if
         // the accumulator value has changed since the proof was created
         let proof_v = Poke2Proof {
@@ -49,8 +63,8 @@ impl NonMembershipProof {
             q: self.q.clone(),
             z: self.z.clone(),
         };
-        let v_res = proof_v.verify_with(&self.v, &accumulator, nonce);
-        let g_res = self.proof_g.verify_with(&gv_inv, &accumulator, nonce);
+        let v_res = proof_v.verify(&self.v, &accumulator.modulus, nonce);
+        let g_res = self.proof_g.verify( &gv_inv, &accumulator.modulus, nonce);
         g_res && v_res
     }
 

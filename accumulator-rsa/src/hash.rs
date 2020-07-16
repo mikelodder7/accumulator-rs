@@ -1,5 +1,6 @@
 use blake2::{Blake2b, Digest};
 use common::bigint::BigInteger;
+use hkdf::Hkdf;
 use std::convert::TryFrom;
 
 /// Hashes `input` to a prime.
@@ -30,6 +31,17 @@ pub(crate) fn hash_to_prime<B: AsRef<[u8]>>(input: B) -> BigInteger {
         input[offset..end].clone_from_slice(&i_bytes[..]);
     }
     num
+}
+
+/// Hashes `input` to a member of group `n`
+/// that can be used as a generator `g`. `g` will be QR_N.
+pub(crate) fn hash_to_generator<B: AsRef<[u8]>>(input: B, n: &BigInteger) -> BigInteger {
+    let length = n.bits() / 8;
+    let h = Hkdf::<Blake2b>::new(Some(b"RSA_ACCUMULATOR_HASH_TO_GENERATOR_"), input.as_ref());
+    let mut okm = vec![0u8; length];
+    h.expand(b"", &mut okm).unwrap();
+
+    BigInteger::from(okm).mod_sqr(n)
 }
 
 #[cfg(test)]

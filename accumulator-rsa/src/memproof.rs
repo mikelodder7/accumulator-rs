@@ -16,7 +16,7 @@ impl MembershipProof {
             &witness.x,
             &witness.u,
             &accumulator.value,
-            accumulator,
+            &accumulator.modulus,
             nonce,
         );
         Self(proof)
@@ -24,7 +24,7 @@ impl MembershipProof {
 
     /// Verify a set membership proof
     pub fn verify<B: AsRef<[u8]>>(&self, accumulator: &Accumulator, nonce: B) -> bool {
-        self.0.verify(accumulator, nonce)
+        self.0.verify(&accumulator.value, &accumulator.modulus, nonce)
     }
 
     /// Serialize this to bytes

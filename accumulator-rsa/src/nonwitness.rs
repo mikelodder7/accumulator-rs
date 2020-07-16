@@ -25,12 +25,15 @@ impl NonMembershipWitness {
                 "value is in the accumulator",
             ));
         }
+        let f = Field::new(&accumulator.modulus);
         let s: BigInteger = accumulator.members.par_iter().product();
         let gcd_res = s.bezouts_coefficients(x);
+        let b = f.exp(&f.inv(&accumulator.generator), &gcd_res.b);
+        debug_assert_eq!(f.exp(&b, &x), f.mul(&f.inv(&accumulator.generator), &f.exp(&accumulator.value, &gcd_res.a)));
 
         Ok(Self {
             a: gcd_res.a,
-            b: (&accumulator.generator).mod_inverse(&accumulator.modulus).mod_exp(&gcd_res.b, &accumulator.modulus),
+            b,
             x: x.clone(),
         })
     }
@@ -121,7 +124,6 @@ impl NonMembershipWitness {
 mod tests {
     use super::*;
     use crate::key::AccumulatorSecretKey;
-    use crate::nonmemproof::NonMembershipProof;
 
     #[test]
     fn witnesses() {
@@ -143,7 +145,7 @@ mod tests {
                 "-15810496871052012929721951174424824308288730437435807996081044306834293553183"
             )
         );
-        assert_eq!(witness.b, BigInteger::from("2149686201261569770065920679789454502455857208341665514002839783271584063678474978827138199408993069974440284641454415089852089623519183067095687250431168098092596138162142731219404546700662574637486023274005277590009346261551440860018534170202956664627062630576155823322479137602352833748169881169692028769928046673148660667626411783135810907646439667356639827542490401895582713578034261200405794892085855078078606350705587354769777624991839858346051910361458564955742400424538045949867061470495504997869577712663063340516143433024876978763009400110923728219469991551602311658692352088592887106676887360156790752153"));
+        assert_eq!(witness.b, BigInteger::from("19731949503840799383004983499976351402593806159011822165741044085004905054673855363251385357597006492205730905650466488066773470871149400842396325545777674920024532296129116696323189577451048138544518857167383327747625073230517859862062456981747960458354502115002928340061239460009397008827664942646578083788378616855856348273253698783745015718408649373541254454588228353839211861287000689818331397142653546216894453995644059116432377166068316662466227209474894641100413409398337545057792037057027550522667399457451683638422319281726301941188118255274194652039389040737481315040156989596592391081668567908550005221922"));
 
         assert_eq!(witness.to_bytes().len(), 4 * FACTOR_SIZE + MEMBER_SIZE);
     }
@@ -160,17 +162,15 @@ mod tests {
             19u64.to_be_bytes(),
         ];
         let member = 37u64.to_be_bytes();
-        let mut acc = Accumulator::with_members(&key, &members);
+        let acc = Accumulator::with_members(&key, &members);
         let witness = NonMembershipWitness::new(&acc, &member).unwrap();
 
         // Test add update
-        let mut acc_prime = &acc + 29u64;
+        let acc_prime = &acc + 29u64;
 
         let res = witness.update(&acc, &acc_prime);
         assert!(res.is_ok());
         let new_w = res.unwrap();
-
-        let expected_w = NonMembershipWitness::new(&acc_prime, &member).unwrap();
 
         let expected_witness = NonMembershipWitness::new(&acc_prime, &member).unwrap();
         assert_eq!(expected_witness.a, new_w.a);
@@ -185,16 +185,18 @@ mod tests {
         assert_eq!(expected_witness.a, new_w.a);
         assert_eq!(expected_witness.b, new_w.b);
 
-        // let old_acc = new_acc.clone();
+        let acc_prime = new_acc.clone();
         // new_acc.remove_u64_assign(&key, 7u64).unwrap();
         // new_acc.remove_u64_assign(&key, 11u64).unwrap();
         // new_acc.remove_u64_assign(&key, 13u64).unwrap();
-        // new_acc += 31u64;
-        // let res = new_w.update(&old_acc, &new_acc);
-        // assert!(res.is_ok());
-        // let new_w = res.unwrap();
-        // let expected_witness = NonMembershipWitness::new(&new_acc, &member).unwrap();
-        // assert_eq!(expected_witness.a, new_w.a);
-        // assert_eq!(expected_witness.b, new_w.b);
+        new_acc += 31u64;
+        new_acc += 41u64;
+        new_acc += 47u64;
+        let res = new_w.update(&acc_prime, &new_acc);
+        assert!(res.is_ok());
+        let new_w = res.unwrap();
+        let expected_witness = NonMembershipWitness::new(&new_acc, &member).unwrap();
+        assert_eq!(expected_witness.a, new_w.a);
+        assert_eq!(expected_witness.b, new_w.b);
     }
 }
