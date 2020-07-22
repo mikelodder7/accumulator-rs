@@ -123,6 +123,7 @@ impl NonMembershipWitness {
 mod tests {
     use super::*;
     use crate::key::AccumulatorSecretKey;
+    use crate::MEMBER_SIZE_BITS;
 
     #[test]
     fn witnesses() {
@@ -194,5 +195,33 @@ mod tests {
         let expected_witness = NonMembershipWitness::new(&new_acc, &member).unwrap();
         assert_eq!(expected_witness.a, new_w.a);
         assert_eq!(expected_witness.b, new_w.b);
+    }
+
+    #[test]
+    fn big_updates() {
+        let key = AccumulatorSecretKey::default();
+        let members = (0..10).collect::<Vec<_>>().par_iter().map(|_| BigInteger::generate_prime(MEMBER_SIZE_BITS)).collect::<Vec<BigInteger>>();
+        let x = BigInteger::generate_prime(MEMBER_SIZE_BITS);
+
+        let acc = Accumulator::with_prime_members(&key, &members).unwrap();
+        let witness = NonMembershipWitness::new_prime(&acc, &x).unwrap();
+
+        // let mut new_acc = acc.clone();
+        let mut new_members = Vec::new();
+        for _ in 0..3 {
+            // acc.insert_prime(&BigInteger::generate_prime(MEMBER_SIZE_BITS)).unwrap();
+            new_members.push(BigInteger::generate_prime(MEMBER_SIZE_BITS));
+        }
+
+        let new_acc = acc.add_prime_members(new_members.as_slice());
+        assert!(new_acc.is_ok());
+        let new_acc = new_acc.unwrap();
+        let res = witness.update(&acc, &new_acc);
+        assert!(res.is_ok());
+        let new_w = res.unwrap();
+
+        let expected_w = NonMembershipWitness::new_prime(&new_acc, &x).unwrap();
+        assert_eq!(expected_w.a, new_w.a);
+        assert_eq!(expected_w.b, new_w.b);
     }
 }
