@@ -208,6 +208,8 @@ display_impl!(Accumulator);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key::PublicKey;
+    use crate::proof::ProofParams;
 
     #[test]
     fn new_accmulator_100() {
@@ -234,28 +236,41 @@ mod tests {
 
     #[test]
     fn one_year_updates() {
+        use crate::proof::MembershipProofCommitting;
         use crate::witness::MembershipWitness;
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        use std::time::SystemTime;
+
+        const DAYS: usize = 3;
 
         let key = SecretKey::new(None);
+        let pk = PublicKey::from(&key);
         let mut items: Vec<Element> = (0..10_000_000).map(|_| Element::random()).collect();
         let mut acc = Accumulator::with_elements(&key, 0, items.as_slice());
 
         let mut witness = MembershipWitness::new(items.last().unwrap(), acc, &key);
+        let params = ProofParams::new(pk, None);
+        let committing = MembershipProofCommitting::new(&witness, acc, params, pk, None);
+        let challenge = Element::hash(committing.get_bytes_for_challenge().as_slice());
+        let proof = committing.gen_proof(challenge);
+        let finalized = proof.finalize(acc, params, pk, challenge);
+        assert_eq!(
+            Element::hash(finalized.get_bytes_for_challenge().as_slice()),
+            challenge
+        );
 
-        let mut deltas = Vec::with_capacity(366);
-        for _ in 0..365 {
+        let mut deltas = Vec::with_capacity(DAYS);
+        for i in 0..DAYS {
             let additions: Vec<Element> = (0..1000).map(|_| Element::random()).collect();
             let (deletions, titems) = items.split_at(600);
             let t = titems.to_vec();
             let deletions = deletions.to_vec();
             items = t;
-            println!("Update for single day");
+            println!("Update for single day: {}", i + 1);
             let before = SystemTime::now();
             let coefficients = acc.update_assign(&key, additions.as_slice(), deletions.as_slice());
             let time = SystemTime::now().duration_since(before).unwrap();
             println!("Time to complete: {:?}", time);
-            deltas.push((coefficients, additions, deletions));
+            deltas.push((additions, deletions, coefficients));
         }
 
         println!("Update witness");
@@ -263,6 +278,14 @@ mod tests {
         witness.multi_batch_update_assign(deltas.as_slice());
         let time = SystemTime::now().duration_since(before).unwrap();
         println!("Time to complete: {:?}", time);
+        let committing = MembershipProofCommitting::new(&witness, acc, params, pk, None);
+        let challenge = Element::hash(committing.get_bytes_for_challenge().as_slice());
+        let proof = committing.gen_proof(challenge);
+        let finalized = proof.finalize(acc, params, pk, challenge);
+        assert_eq!(
+            Element::hash(finalized.get_bytes_for_challenge().as_slice()),
+            challenge
+        );
     }
 
     #[test]
