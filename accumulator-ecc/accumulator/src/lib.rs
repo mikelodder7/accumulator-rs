@@ -101,8 +101,8 @@ const SALT: &'static [u8] = b"VB-ACC-HASH-SALT-";
 struct PolynomialG1(Vec<G1>);
 
 impl PolynomialG1 {
-    pub fn new() -> Self {
-        Self(Vec::new())
+    pub fn with_capacity(size: usize) -> Self {
+        Self(Vec::with_capacity(size))
     }
 
     pub fn evaluate(&self, x: Fr) -> Option<G1> {

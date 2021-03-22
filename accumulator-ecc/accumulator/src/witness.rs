@@ -468,7 +468,7 @@ where
     };
 
     //〈Υy,Ω〉
-    let mut p = PolynomialG1::new();
+    let mut p = PolynomialG1::with_capacity(deltas.len());
 
     // Ωi->j+1 = ∑ 1..t (dAt * dDt-1) · Ω
     for i in 0..deltas.len() {

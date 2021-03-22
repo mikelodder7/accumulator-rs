@@ -122,12 +122,12 @@ impl NonMembershipWitness {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::key::AccumulatorSecretKey;
+    use crate::key::SecretKey;
     use crate::MEMBER_SIZE_BITS;
 
     #[test]
     fn witnesses() {
-        let key = AccumulatorSecretKey::default();
+        let key = SecretKey::default();
         let members: Vec<[u8; 8]> = vec![
             23u64.to_be_bytes(),
             7u64.to_be_bytes(),
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn updates() {
-        let key = AccumulatorSecretKey::default();
+        let key = SecretKey::default();
         let members: Vec<[u8; 8]> = vec![
             23u64.to_be_bytes(),
             7u64.to_be_bytes(),
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn big_updates() {
-        let key = AccumulatorSecretKey::default();
+        let key = SecretKey::default();
         let members = (0..10).collect::<Vec<_>>().par_iter().map(|_| BigInteger::generate_prime(MEMBER_SIZE_BITS)).collect::<Vec<BigInteger>>();
         let x = BigInteger::generate_prime(MEMBER_SIZE_BITS);
 

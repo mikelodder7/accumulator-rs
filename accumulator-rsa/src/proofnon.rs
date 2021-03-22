@@ -118,11 +118,11 @@ serdes_impl!(NonMembershipProof);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::key::AccumulatorSecretKey;
+    use crate::key::SecretKey;
 
     #[test]
     fn proof_test() {
-        let key = AccumulatorSecretKey::default();
+        let key = SecretKey::default();
         let members: Vec<[u8; 8]> = vec![
             3u64.to_be_bytes(),
             7u64.to_be_bytes(),
