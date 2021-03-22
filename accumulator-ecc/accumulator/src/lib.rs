@@ -12,7 +12,7 @@ use pairings::{
     bls12_381::{Fr, G1},
     hash_to_curve::HashToCurve,
     hash_to_field::{BaseFromRO, ExpandMsgXmd},
-    CurveProjective
+    CurveProjective,
 };
 #[cfg(not(test))]
 use rand::prelude::*;
@@ -101,7 +101,9 @@ const SALT: &'static [u8] = b"VB-ACC-HASH-SALT-";
 struct PolynomialG1(Vec<G1>);
 
 impl PolynomialG1 {
-    pub fn new() -> Self { Self(Vec::new()) }
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
 
     pub fn evaluate(&self, x: Fr) -> Option<G1> {
         if self.0.is_empty() {
@@ -149,6 +151,10 @@ struct Polynomial(Vec<Fr>);
 impl Polynomial {
     pub fn new() -> Self {
         Self(Vec::new())
+    }
+
+    pub fn with_capacity(size: usize) -> Self {
+        Self(Vec::with_capacity(size))
     }
 
     pub fn push(&mut self, value: Fr) {

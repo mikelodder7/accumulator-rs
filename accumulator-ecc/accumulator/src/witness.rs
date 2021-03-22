@@ -1,9 +1,9 @@
 use crate::{
     accumulator::{Accumulator, Coefficient, Element},
-    key::{PublicKey, SecretKey},
+    dad,
     error::Error,
-    dad, BigArray,
-    PolynomialG1,
+    key::{PublicKey, SecretKey},
+    BigArray, PolynomialG1,
 };
 use ff_zeroize::{Field, PrimeField};
 use pairings::{
@@ -11,12 +11,12 @@ use pairings::{
     serdes::SerDes,
     CurveAffine, CurveProjective, Engine,
 };
-use serde::{Deserialize, Serialize, Serializer, Deserializer, ser::SerializeTuple, de::{Visitor, Error as DError, SeqAccess, Unexpected}};
-use std::{
-    convert::TryFrom,
-    fmt,
-    io::Cursor,
+use serde::{
+    de::{Error as DError, SeqAccess, Unexpected, Visitor},
+    ser::SerializeTuple,
+    Deserialize, Deserializer, Serialize, Serializer,
 };
+use std::{convert::TryFrom, fmt, io::Cursor};
 
 struct_impl!(
 /// A membership witness that can be used for membership proof generation
@@ -66,6 +66,19 @@ impl MembershipWitness {
             None => false,
             Some(product) => product == Fq12::one(),
         }
+    }
+
+    pub fn apply_delta(&self, delta: Delta) -> Self {
+        let mut t = self.clone();
+        t.apply_delta_assign(delta);
+        t
+    }
+
+    pub fn apply_delta_assign(&mut self, delta: Delta) {
+        // C * dA(x) / dD(x)
+        self.c.mul_assign(delta.d);
+        // C + 1 / dD *〈Υy,Ω〉
+        self.c.add_assign(&delta.p);
     }
 
     /// Membership witness update as defined in section 4, return a new witness
@@ -128,38 +141,29 @@ impl MembershipWitness {
         coefficients: &[Coefficient],
     ) {
         if let Ok(delta) = evaluate_delta(Element(self.y), additions, deletions, coefficients) {
-            // C * dA(x) / dD(x)
-            self.c.mul_assign(delta.d);
-            // C + 1 / dD *〈Υy,Ω〉
-            self.c.add_assign(&delta.p);
+            self.apply_delta_assign(delta);
         }
     }
 
-    pub fn multi_batch_update<A, D, C>(
-        &mut self,
-        deltas: &[(A, D, C)]
-    ) -> Self
-        where A: AsRef<[Element]>,
-              D: AsRef<[Element]>,
-              C: AsRef<[Coefficient]>
+    pub fn multi_batch_update<A, D, C>(&mut self, deltas: &[(A, D, C)]) -> Self
+    where
+        A: AsRef<[Element]>,
+        D: AsRef<[Element]>,
+        C: AsRef<[Coefficient]>,
     {
         let mut cn = *self;
         cn.multi_batch_update_assign(deltas);
         cn
     }
 
-    pub fn multi_batch_update_assign<A, D, C>(
-        &mut self,
-        deltas: &[(A, D, C)]
-    ) where A: AsRef<[Element]>,
-            D: AsRef<[Element]>,
-            C: AsRef<[Coefficient]>
+    pub fn multi_batch_update_assign<A, D, C>(&mut self, deltas: &[(A, D, C)])
+    where
+        A: AsRef<[Element]>,
+        D: AsRef<[Element]>,
+        C: AsRef<[Coefficient]>,
     {
         if let Ok(delta) = evaluate_deltas(Element(self.y), deltas) {
-            // C * dA(x) / dD(x)
-            self.c.mul_assign(delta.d);
-            // C + 1 / dD *〈Υy,Ω〉
-            self.c.add_assign(&delta.p);
+            self.apply_delta_assign(delta);
         }
     }
 
@@ -253,6 +257,21 @@ impl NonMembershipWitness {
         }
     }
 
+    pub fn apply_delta(&self, delta: Delta) -> Self {
+        let mut t = self.clone();
+        t.apply_delta_assign(delta);
+        t
+    }
+
+    pub fn apply_delta_assign(&mut self, delta: Delta) {
+        // C * dA(x) / dD(x)
+        self.c.mul_assign(delta.d);
+        // d * dA(x) / dD(x)
+        self.d.mul_assign(&delta.d);
+        // C + 1 / dD *〈Υy,Ω〉
+        self.c.add_assign(&delta.p);
+    }
+
     /// Non-membership witness update as defined in section 4, return a new witness
     pub fn update(
         &self,
@@ -282,7 +301,7 @@ impl NonMembershipWitness {
             // If this fails, then this value was removed
             match diff.inverse() {
                 None => return,
-                Some(dd) => diff = dd
+                Some(dd) => diff = dd,
             };
             self.c.sub_assign(&new_accumulator.0);
             self.c.mul_assign(diff);
@@ -317,43 +336,29 @@ impl NonMembershipWitness {
         coefficients: &[Coefficient],
     ) {
         if let Ok(delta) = evaluate_delta(Element(self.y), additions, deletions, coefficients) {
-            // C * dA(x) / dD(x)
-            self.c.mul_assign(delta.d);
-            // d * dA(x) / dD(x)
-            self.d.mul_assign(&delta.d);
-
-            // C + 1 / dD *〈Υy,Ω〉
-            self.c.add_assign(&delta.p);
+            self.apply_delta_assign(delta);
         }
     }
 
-    pub fn multi_batch_update<A, D, C>(
-        &mut self,
-        deltas: &[(A, D, C)]
-    ) -> Self
-        where A: AsRef<[Element]>,
-              D: AsRef<[Element]>,
-              C: AsRef<[Coefficient]>
+    pub fn multi_batch_update<A, D, C>(&mut self, deltas: &[(A, D, C)]) -> Self
+    where
+        A: AsRef<[Element]>,
+        D: AsRef<[Element]>,
+        C: AsRef<[Coefficient]>,
     {
         let mut cn = *self;
         cn.multi_batch_update_assign(deltas);
         cn
     }
 
-    pub fn multi_batch_update_assign<A, D, C>(
-        &mut self,
-        deltas: &[(A, D, C)]
-    ) where A: AsRef<[Element]>,
-            D: AsRef<[Element]>,
-            C: AsRef<[Coefficient]>
+    pub fn multi_batch_update_assign<A, D, C>(&mut self, deltas: &[(A, D, C)])
+    where
+        A: AsRef<[Element]>,
+        D: AsRef<[Element]>,
+        C: AsRef<[Coefficient]>,
     {
         if let Ok(delta) = evaluate_deltas(Element(self.y), deltas) {
-            // C * dA(x) / dD(x)
-            self.c.mul_assign(delta.d);
-            // d * dA(x) / dD(x)
-            self.d.mul_assign(&delta.d);
-            // C + 1 / dD *〈Υy,Ω〉
-            self.c.add_assign(&delta.p);
+            self.apply_delta_assign(delta);
         }
     }
 
@@ -371,12 +376,13 @@ impl NonMembershipWitness {
 #[derive(Copy, Clone, Debug)]
 pub struct Delta {
     d: Fr,
-    p: G1
+    p: G1,
 }
 
 impl Serialize for Delta {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: Serializer
+    where
+        S: Serializer,
     {
         let mut o = [0u8; 80];
         self.d.serialize(&mut o.as_mut(), true).unwrap();
@@ -391,7 +397,8 @@ impl Serialize for Delta {
 
 impl<'de> Deserialize<'de> for Delta {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where D: Deserializer<'de>
+    where
+        D: Deserializer<'de>,
     {
         struct ArrayVisitor;
 
@@ -403,15 +410,20 @@ impl<'de> Deserialize<'de> for Delta {
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Delta, A::Error>
-                where A: SeqAccess<'de>
+            where
+                A: SeqAccess<'de>,
             {
                 let mut a = [0u8; 80];
                 for i in 0..a.len() {
-                    a[i] = seq.next_element()?.ok_or_else(|| DError::invalid_length(i, &self))?;
+                    a[i] = seq
+                        .next_element()?
+                        .ok_or_else(|| DError::invalid_length(i, &self))?;
                 }
                 let mut c = Cursor::new(a);
-                let d = Fr::deserialize(&mut c, true).map_err(|_| DError::invalid_value(Unexpected::Bytes(&a), &self))?;
-                let p = G1::deserialize(&mut c, true).map_err(|_| DError::invalid_value(Unexpected::Bytes(&a), &self))?;
+                let d = Fr::deserialize(&mut c, true)
+                    .map_err(|_| DError::invalid_value(Unexpected::Bytes(&a), &self))?;
+                let p = G1::deserialize(&mut c, true)
+                    .map_err(|_| DError::invalid_value(Unexpected::Bytes(&a), &self))?;
                 Ok(Delta { d, p })
             }
         }
@@ -421,9 +433,10 @@ impl<'de> Deserialize<'de> for Delta {
 }
 
 pub fn evaluate_deltas<A, D, C>(y: Element, deltas: &[(A, D, C)]) -> Result<Delta, Error>
-    where A: AsRef<[Element]>,
-          D: AsRef<[Element]>,
-          C: AsRef<[Coefficient]>
+where
+    A: AsRef<[Element]>,
+    D: AsRef<[Element]>,
+    C: AsRef<[Coefficient]>,
 {
     let one = Fr::from_repr(FrRepr::from(1u64)).unwrap();
 
@@ -451,7 +464,7 @@ pub fn evaluate_deltas<A, D, C>(y: Element, deltas: &[(A, D, C)]) -> Result<Delt
     // If this fails, then this value was removed
     match d.inverse() {
         None => return Err(Error::from_msg(1, "no inverse exists")),
-        Some(ddd) => d = ddd
+        Some(ddd) => d = ddd,
     };
 
     //〈Υy,Ω〉
@@ -468,7 +481,7 @@ pub fn evaluate_deltas<A, D, C>(y: Element, deltas: &[(A, D, C)]) -> Result<Delt
 
         let mut dak = one;
         // ∏^(j+1)_(k=t+1)
-        for k in (i+1)..deltas.len() {
+        for k in (i + 1)..deltas.len() {
             dak.mul_assign(&aa[k]);
         }
 
@@ -483,27 +496,30 @@ pub fn evaluate_deltas<A, D, C>(y: Element, deltas: &[(A, D, C)]) -> Result<Delt
     if let Some(mut v) = p.evaluate(y.0) {
         // 1 / dD *〈Υy,Ω〉
         v.mul_assign(d);
-        Ok(Delta {
-            d: a,
-            p: v,
-        })
+        Ok(Delta { d: a, p: v })
     } else {
         Err(Error::from_msg(2, "polynomial could not be evaluated"))
     }
 }
 
 /// Computes the compressed delta needed to update a witness
-pub fn evaluate_delta<A, D, C>(y: Element, additions: A, deletions: D, coefficients: C) -> Result<Delta, Error>
-    where A: AsRef<[Element]>,
-          D: AsRef<[Element]>,
-          C: AsRef<[Coefficient]>
+pub fn evaluate_delta<A, D, C>(
+    y: Element,
+    additions: A,
+    deletions: D,
+    coefficients: C,
+) -> Result<Delta, Error>
+where
+    A: AsRef<[Element]>,
+    D: AsRef<[Element]>,
+    C: AsRef<[Coefficient]>,
 {
     // dD(x) = ∏ 1..m (yD_i - x)
     let mut d = dad(deletions.as_ref(), y.0);
     // If this fails, then this value was removed
     match d.inverse() {
         None => return Err(Error::from_msg(1, "no inverse exists")),
-        Some(dd) => d = dd
+        Some(dd) => d = dd,
     };
 
     //dA(x) =  ∏ 1..n (yA_i - x)
@@ -515,10 +531,7 @@ pub fn evaluate_delta<A, D, C>(y: Element, additions: A, deletions: D, coefficie
     if let Some(mut v) = p.evaluate(y.0) {
         // C + 1 / dD *〈Υy,Ω〉
         v.mul_assign(d);
-        Ok(Delta {
-            d: a,
-            p: v,
-        })
+        Ok(Delta { d: a, p: v })
     } else {
         Err(Error::from_msg(2, "polynomial could not be evaluated"))
     }
@@ -610,7 +623,7 @@ mod tests {
         wit.multi_batch_update_assign(&[
             (adds1, dels1, coeffs1.as_slice()),
             (&[], dels2, coeffs2.as_slice()),
-            (&[], dels3, coeffs3.as_slice())
+            (&[], dels3, coeffs3.as_slice()),
         ]);
         assert!(wit.verify(pubkey, acc));
     }

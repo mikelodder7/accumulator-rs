@@ -1,4 +1,4 @@
-use crate::{accumulator::Element, generate_fr, Polynomial, BigArray};
+use crate::{accumulator::Element, generate_fr, BigArray, Polynomial};
 use ff_zeroize::{Field, PrimeField};
 use pairings::{
     bls12_381::{Fr, FrRepr, G2},
@@ -10,11 +10,13 @@ use std::convert::TryFrom;
 use zeroize::Zeroize;
 
 struct_impl!(
-/// Represents \alpha (secret key) on page 6 in
-/// <https://eprint.iacr.org/2020/777.pdf>
-#[derive(Clone, Debug, Zeroize)]
-#[zeroize(drop)]
-SecretKey, SecretKeyInner, Fr
+    /// Represents \alpha (secret key) on page 6 in
+    /// <https://eprint.iacr.org/2020/777.pdf>
+    #[derive(Clone, Debug, Zeroize)]
+    #[zeroize(drop)]
+    SecretKey,
+    SecretKeyInner,
+    Fr
 );
 
 impl SecretKey {
@@ -64,7 +66,7 @@ impl SecretKey {
         let one = Fr::from_repr(FrRepr::from(1u64)).unwrap();
         let mut m1 = one;
         m1.negate();
-        let mut v_d = Polynomial::new();
+        let mut v_d = Polynomial::with_capacity(deletions.len());
         for s in 0..deletions.len() {
             // ∏ 1..s (yD_i + alpha)^-1
             let c = self.batch_deletions(&deletions[0..s + 1]).0;
@@ -85,7 +87,7 @@ impl SecretKey {
         v_d *= self.batch_additions(additions).0;
 
         // vA(x) = ∑^n_{s=1}{ ∏ 1..s-1 {yA_i + alpha} ∏ s+1..n {yA_j - x} }
-        let mut v_a = Polynomial::new();
+        let mut v_a = Polynomial::with_capacity(additions.len());
         for s in 0..additions.len() {
             // ∏ 1..s-1 {yA_i + alpha}
             let c = if s == 0 {
@@ -113,10 +115,13 @@ impl SecretKey {
 }
 
 struct_impl!(
-/// Represents \overline{Q} = \overline{P}*\alpha (public key) on page 6 in
-/// <https://eprint.iacr.org/2020/777.pdf>
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-PublicKey, PublicKeyInner, G2);
+    /// Represents \overline{Q} = \overline{P}*\alpha (public key) on page 6 in
+    /// <https://eprint.iacr.org/2020/777.pdf>
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    PublicKey,
+    PublicKeyInner,
+    G2
+);
 display_impl!(PublicKey);
 
 impl PublicKey {

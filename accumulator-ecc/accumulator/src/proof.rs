@@ -126,7 +126,9 @@ impl MembershipProofCommitting {
         // Randomly pick r_σ,r_ρ,r_δσ,r_δρ
         // r_y is either generated randomly or supplied in case this proof is used to
         // bind to an external proof
-        let r_y = blinding_factor.map(|bf| bf.into()).unwrap_or(generate_fr(SALT, None));
+        let r_y = blinding_factor
+            .map(|bf| bf.into())
+            .unwrap_or(generate_fr(SALT, None));
         let r_sigma = generate_fr(SALT, None);
         let r_rho = generate_fr(SALT, None);
         let r_delta_sigma = generate_fr(SALT, None);
@@ -477,7 +479,9 @@ impl NonMembershipProofCommitting {
         // Randomly pick r_σ,r_ρ,r_δσ,r_δρ
         // r_y is either generated randomly or supplied in case this proof is used to
         // bind to an external proof
-        let r_y = blinding_factor.map(|bf| bf.into()).unwrap_or(generate_fr(SALT, None));
+        let r_y = blinding_factor
+            .map(|bf| bf.into())
+            .unwrap_or(generate_fr(SALT, None));
         let r_sigma = generate_fr(SALT, None);
         let r_rho = generate_fr(SALT, None);
         let r_delta_sigma = generate_fr(SALT, None);
@@ -589,7 +593,7 @@ impl NonMembershipProofCommitting {
             k_g1: proof_params.k,
             x_g1: proof_params.x,
             y_g1: proof_params.y,
-            z_g1: proof_params.z
+            z_g1: proof_params.z,
         }
     }
 
@@ -617,35 +621,15 @@ impl NonMembershipProofCommitting {
     /// proof to be sent to the verifier
     pub fn gen_proof(&self, challenge_hash: Fr) -> NonMembershipProof {
         // s_y = r_y - cy
-        let s_y = schnorr(
-            self.blinding_factor,
-            self.witness_value,
-            challenge_hash,
-        );
+        let s_y = schnorr(self.blinding_factor, self.witness_value, challenge_hash);
         // s_σ = r_σ - cσ
-        let s_sigma = schnorr(
-            self.r_sigma,
-            self.sigma,
-            challenge_hash,
-        );
+        let s_sigma = schnorr(self.r_sigma, self.sigma, challenge_hash);
         // s_ρ = r_ρ - cρ
-        let s_rho = schnorr(
-            self.r_rho,
-            self.rho,
-            challenge_hash,
-        );
+        let s_rho = schnorr(self.r_rho, self.rho, challenge_hash);
         // s_δσ = rδσ - cδ_σ
-        let s_delta_sigma = schnorr(
-            self.r_delta_sigma,
-            self.delta_sigma,
-            challenge_hash,
-        );
+        let s_delta_sigma = schnorr(self.r_delta_sigma, self.delta_sigma, challenge_hash);
         // s_δρ = rδρ - cδ_ρ
-        let s_delta_rho = schnorr(
-            self.r_delta_rho,
-            self.delta_rho,
-            challenge_hash,
-        );
+        let s_delta_rho = schnorr(self.r_delta_rho, self.delta_rho, challenge_hash);
         // s_u = r_u + c d
         let s_u = schnorr(self.r_u, self.witness_d, challenge_hash);
         // s_v = r_v + c tau
@@ -705,7 +689,6 @@ impl NonMembershipProof {
         pubkey: PublicKey,
         challenge_hash: crate::Element,
     ) -> NonMembershipProofFinal {
-
         // R_σ = s_δ X - c T_σ
         let mut neg_t_sigma = self.t_sigma;
         neg_t_sigma.negate();
@@ -717,7 +700,10 @@ impl NonMembershipProof {
         // R_ρ = s_ρ Y - c T_ρ
         let mut neg_t_rho = self.t_rho;
         neg_t_rho.negate();
-        let cap_r_rho = cap_r(&[proof_params.y, neg_t_rho], &[self.s_rho, challenge_hash.0]);
+        let cap_r_rho = cap_r(
+            &[proof_params.y, neg_t_rho],
+            &[self.s_rho, challenge_hash.0],
+        );
 
         // R_δσ =  s_y T_σ - s_δσ X
         let mut neg_x = proof_params.x;
@@ -895,7 +881,8 @@ fn pair(g1: G1, g2: G2) -> Fq12 {
     Bls12::final_exponentiation(&Bls12::miller_loop(&[(
         &g1.into_affine().prepare(),
         &g2.into_affine().prepare(),
-    )])).unwrap()
+    )]))
+    .unwrap()
 }
 
 fn pairing(g1: G1, g2: G2, exp: Fr) -> Fq12 {

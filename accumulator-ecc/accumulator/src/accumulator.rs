@@ -1,4 +1,4 @@
-use crate::{generate_fr, key::SecretKey, SALT, BigArray};
+use crate::{generate_fr, key::SecretKey, BigArray, SALT};
 use ff_zeroize::Field;
 use pairings::{
     bls12_381::{Fr, G1},
@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
 struct_impl!(
-/// An element in the accumulator
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-Element, ElementInner, Fr
+    /// An element in the accumulator
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    Element,
+    ElementInner,
+    Fr
 );
 display_impl!(Element);
 
@@ -39,9 +41,11 @@ impl Element {
 }
 
 struct_impl!(
-/// A coefficent for updating witnesses
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-Coefficient, CoefficientInner, G1
+    /// A coefficent for updating witnesses
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+    Coefficient,
+    CoefficientInner,
+    G1
 );
 
 impl Coefficient {
@@ -57,9 +61,11 @@ impl Coefficient {
 display_impl!(Coefficient);
 
 struct_impl!(
-/// Represents a Universal Bilinear Accumulator.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-Accumulator, AccumulatorInner, G1
+    /// Represents a Universal Bilinear Accumulator.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    Accumulator,
+    AccumulatorInner,
+    G1
 );
 
 impl Accumulator {
@@ -224,6 +230,39 @@ mod tests {
         let key = SecretKey::new(None);
         let acc = Accumulator::new(&key, 10_000_000);
         assert_ne!(acc.0, G1::zero());
+    }
+
+    #[test]
+    fn one_year_updates() {
+        use crate::witness::MembershipWitness;
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        let key = SecretKey::new(None);
+        let mut items: Vec<Element> = (0..10_000_000).map(|_| Element::random()).collect();
+        let mut acc = Accumulator::with_elements(&key, 0, items.as_slice());
+
+        let mut witness = MembershipWitness::new(items.last().unwrap(), acc, &key);
+
+        let mut deltas = Vec::with_capacity(366);
+        for _ in 0..365 {
+            let additions: Vec<Element> = (0..1000).map(|_| Element::random()).collect();
+            let (deletions, titems) = items.split_at(600);
+            let t = titems.to_vec();
+            let deletions = deletions.to_vec();
+            items = t;
+            println!("Update for single day");
+            let before = SystemTime::now();
+            let coefficients = acc.update_assign(&key, additions.as_slice(), deletions.as_slice());
+            let time = SystemTime::now().duration_since(before).unwrap();
+            println!("Time to complete: {:?}", time);
+            deltas.push((coefficients, additions, deletions));
+        }
+
+        println!("Update witness");
+        let before = SystemTime::now();
+        witness.multi_batch_update_assign(deltas.as_slice());
+        let time = SystemTime::now().duration_since(before).unwrap();
+        println!("Time to complete: {:?}", time);
     }
 
     #[test]
