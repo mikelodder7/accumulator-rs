@@ -11,23 +11,25 @@ This implementation draws upon work from [Nguyen05](https://eprint.iacr.org/2005
 
 # Features
 
-- [x] Accumulators
-   - [x] Add new members
-   - [x] Remove existing members
-- [x] Membership Witness
-   - [x] Create
-   - [x] Update
-   - [x] Aggregation
-- [x] Non-membership Witness
-    - [x] Create
-    - [x] Update
-    - [x] Aggregation
-- [x] Membership Proof
-   - [x] Generate
-   - [x] Verify
-- [x] Non-Membership Proof
-   - [x] Generate 
-   - [x] Verify 
+- [ ] Accumulators
+   - [ ] Add new members
+   - [ ] Remove existing members
+- [ ] Membership Witness
+   - [ ] Create
+   - [ ] Update
+   - [ ] Aggregation
+- [ ] Non-membership Witness
+    - [ ] Create
+    - [ ] Update
+    - [ ] Aggregation
+- [ ] Membership Proof
+   - [ ] Generate
+   - [ ] Verify
+   - [ ] Aggregation
+- [ ] Non-Membership Proof
+   - [ ] Generate 
+   - [ ] Verify 
+   - [ ] Aggregation
 - [ ] Vector Accumulator
    - [ ] Add new members
    - [ ] Remove existing members
